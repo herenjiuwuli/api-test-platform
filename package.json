@@ -3,16 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "API 自动化测试平台（M1 骨架：Fastify + 内置 SQLite + 用例执行引擎）",
+  "description": "API 自动化测试平台（M2：Fastify + 内置 SQLite + 执行引擎 + Vue3 前端）",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js",
+    "dev": "concurrently -n be,fe -c green,blue \"node index.js\" \"npm --prefix web run dev\"",
+    "dev:be": "node --watch index.js",
+    "dev:fe": "npm --prefix web run dev",
     "test": "vitest run"
   },
   "dependencies": {
     "fastify": "^5.2.1"
   },
   "devDependencies": {
+    "concurrently": "^10.0.4",
     "vitest": "^4.1.11"
   }
 }

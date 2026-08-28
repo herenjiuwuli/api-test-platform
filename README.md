@@ -23,16 +23,23 @@
 ## 快速开始
 
 ```bash
-# 后端
+# 安装依赖（根目录后端 + web 前端）
 npm install
-npm test          # vitest 12 例全绿（全离线）
-npm start         # 后端 http://localhost:3001
+cd web && npm install && cd ..
 
-# 前端（另开一个终端）
-cd web
-npm install
-npm run dev       # http://localhost:5173（/api 自动代理到 3001）
-npm run build     # 产物在 web/dist
+# 方式一（推荐）：一键启动，同时拉起前后端
+npm run dev        # 后端 http://localhost:3001 + 前端 http://localhost:5173
+
+# 方式二：分开启动
+npm start          # 后端 http://localhost:3001
+cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3001）
+```
+
+测试与构建：
+
+```bash
+npm test           # vitest 12 例全绿（全离线）
+cd web && npm run build   # 前端产物 web/dist
 ```
 
 ## 里程碑路线
