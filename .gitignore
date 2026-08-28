@@ -1,0 +1,8 @@
+node_modules
+dist
+*.log
+
+# 本地 SQLite 数据（运行时生成）
+data/
+.env
+.env.*

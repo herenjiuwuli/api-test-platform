@@ -1,0 +1,18 @@
+{
+  "name": "api-test-platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "API 自动化测试平台（M1 骨架：Fastify + 内置 SQLite + 用例执行引擎）",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}
