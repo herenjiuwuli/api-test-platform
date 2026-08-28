@@ -71,12 +71,17 @@ export function buildApp() {
   return app
 }
 
-// 直接运行（node index.js）才监听端口
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// 直接运行（node index.js）才监听端口。
+// 注意：必须用 pathToFileURL 正规化——Windows 下 process.argv[1] 是反斜杠路径，
+// 直接 `file://${argv[1]}` 与 import.meta.url 永远不等，会导致「静默不监听直接退出」。
+import { pathToFileURL } from 'node:url'
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isDirectRun) {
   const app = buildApp()
   const port = Number(process.env.PORT) || 3001
   app.listen({ port, host: '0.0.0.0' }).then(() => {
-    console.log(`✅ API 测试平台 M1 已启动：http://localhost:${port}`)
+    console.log(`✅ API 测试平台 M2 已启动：http://localhost:${port}`)
   }).catch((e) => {
     console.error('启动失败：', e.message)
     process.exit(1)
