@@ -1,4 +1,4 @@
-// API 测试平台 · M2 后端（Fastify）
+// API 测试平台 · M3 后端（Fastify）
 // 路由：
 //   GET  /health                  健康检查
 //   GET  /api/cases               列出全部用例
@@ -8,9 +8,18 @@
 //   DELETE /api/cases/:id         删除用例
 //   POST /api/cases/:id/run       执行单个用例（持久化结果）
 //   POST /api/run-all             执行全部用例（持久化 + 返回汇总）
+//   GET  /api/schedules           定时任务列表
+//   POST /api/schedules           新建定时任务 {caseId, cron}
+//   PUT  /api/schedules/:id       更新定时任务（cron/enabled）
+//   DELETE /api/schedules/:id     删除定时任务
+//   GET  /api/runs                执行记录（?caseId=&limit=）
+//   GET  /api/reports/summary     报告汇总
 import Fastify from 'fastify'
 import { createCase, listCases, getCase, updateCase, deleteCase } from './src/cases.js'
 import { runCase, runAll } from './src/runner.js'
+import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
+import { refreshJob, startScheduler } from './src/scheduler.js'
+import { listRuns, getReportSummary } from './src/reports.js'
 
 export function buildApp() {
   const app = Fastify({ logger: false })
@@ -68,6 +77,45 @@ export function buildApp() {
     }
   })
 
+  // —— 定时任务（M3）——
+  app.get('/api/schedules', async () => listSchedules())
+
+  app.post('/api/schedules', async (req, reply) => {
+    try {
+      const s = createSchedule(req.body || {})
+      refreshJob(s) // 同步注册 cron
+      return reply.code(201).send(s)
+    } catch (e) {
+      return reply.code(400).send({ error: e.message })
+    }
+  })
+
+  app.put('/api/schedules/:id', async (req, reply) => {
+    try {
+      const s = updateSchedule(Number(req.params.id), req.body || {})
+      if (!s) return reply.code(404).send({ error: '定时任务不存在' })
+      refreshJob(s)
+      return s
+    } catch (e) {
+      return reply.code(400).send({ error: e.message })
+    }
+  })
+
+  app.delete('/api/schedules/:id', async (req, reply) => {
+    const id = Number(req.params.id)
+    const ok = deleteSchedule(id)
+    if (!ok) return reply.code(404).send({ error: '定时任务不存在' })
+    refreshJob({ id, enabled: false }) // 停掉对应 cron
+    return { deleted: true }
+  })
+
+  // —— 执行记录与报告（M3）——
+  app.get('/api/runs', async (req) =>
+    listRuns({ caseId: req.query.caseId ? Number(req.query.caseId) : undefined, limit: req.query.limit }),
+  )
+
+  app.get('/api/reports/summary', async () => getReportSummary())
+
   return app
 }
 
@@ -81,7 +129,9 @@ if (isDirectRun) {
   const app = buildApp()
   const port = Number(process.env.PORT) || 3001
   app.listen({ port, host: '0.0.0.0' }).then(() => {
-    console.log(`✅ API 测试平台 M2 已启动：http://localhost:${port}`)
+    // 直接运行时启动定时调度器（测试里不启动，保证隔离）
+    startScheduler()
+    console.log(`✅ API 测试平台 M3 已启动：http://localhost:${port}（定时任务已恢复）`)
   }).catch((e) => {
     console.error('启动失败：', e.message)
     process.exit(1)

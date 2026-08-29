@@ -6,6 +6,7 @@ import Fastify from 'fastify'
 import { buildApp } from '../index.js'
 import { createCase, listCases, getCase, updateCase, deleteCase } from '../src/cases.js'
 import { runCase, runAll } from '../src/runner.js'
+import { stopAllScheduler } from '../src/scheduler.js'
 
 // 必须在首个 db 调用前设置（导入模块不触达 db，故放此处即可）
 process.env.DB_PATH = ':memory:'
@@ -21,6 +22,10 @@ beforeAll(async () => {
   target.get('/boom', async () => {
     throw new Error('boom')
   })
+  target.get('/json', async () => ({
+    code: 0,
+    data: { list: [{ id: 1, tags: ['a', 'b'] }, { id: 2, tags: [] }], total: 2 },
+  }))
   await target.listen({ port: 0, host: '127.0.0.1' })
   targetUrl = 'http://127.0.0.1:' + target.server.address().port
 
@@ -29,6 +34,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  stopAllScheduler() // 清理测试中注册的 cron 任务
   await target.close()
   await app.close()
 })
@@ -61,6 +67,60 @@ describe('runner（用例执行引擎）', () => {
     expect(results).toHaveLength(2)
     expect(results[0].pass).toBe(true)
     expect(results[1].pass).toBe(false)
+  })
+})
+
+describe('runner JSONPath 断言（M3）', () => {
+  it('jsonChecks 全部通过（eq/exists/gte/下标）', async () => {
+    const r = await runCase({
+      method: 'GET',
+      url: `${targetUrl}/json`,
+      expected: {
+        jsonChecks: [
+          { path: '$.code', op: 'eq', value: 0 },
+          { path: '$.data.total', op: 'gte', value: 1 },
+          { path: '$.data.list[0].id', op: 'eq', value: 1 },
+          { path: '$.data.list[*].id', op: 'exists' },
+        ],
+      },
+    })
+    expect(r.pass).toBe(true)
+  })
+
+  it('jsonChecks 失败给出明细', async () => {
+    const r = await runCase({
+      method: 'GET',
+      url: `${targetUrl}/json`,
+      expected: { jsonChecks: [{ path: '$.code', op: 'eq', value: 1 }] },
+    })
+    expect(r.pass).toBe(false)
+    expect(r.detail.join()).toContain('$.code')
+    expect(r.detail.join()).toContain('实际 0')
+  })
+
+  it('响应非 JSON 时 jsonChecks 失败', async () => {
+    const r = await runCase({
+      method: 'GET',
+      url: `${targetUrl}/ok`,
+      expected: { jsonChecks: [{ path: '$.a', op: 'exists' }] },
+    })
+    expect(r.pass).toBe(false)
+    expect(r.detail.join()).toContain('不是合法 JSON')
+  })
+
+  it('gt / lt / contains 数值与包含断言', async () => {
+    const r = await runCase({
+      method: 'GET',
+      url: `${targetUrl}/json`,
+      expected: {
+        jsonChecks: [
+          { path: '$.data.list[0].tags.length', op: 'gt', value: 1 },
+          { path: '$.data.list[1].tags.length', op: 'lt', value: 1 },
+          { path: '$.data.list[0].tags', op: 'contains', value: 'a' },
+        ],
+      },
+    })
+    expect(r.pass).toBe(true)
   })
 })
 
@@ -153,6 +213,77 @@ describe('HTTP 层（app.inject）', () => {
 
     const bad = await app.inject({ method: 'PUT', url: `/api/cases/${c.id}`, payload: { name: '' } })
     expect(bad.statusCode).toBe(400)
+    await app.inject({ method: 'DELETE', url: `/api/cases/${c.id}` })
+  })
+})
+
+describe('定时任务与报告（M3）', () => {
+  it('schedules CRUD + 执行记录 + 报告汇总 闭环', async () => {
+    const c = createCase({
+      name: 'M3用例',
+      method: 'GET',
+      url: `${targetUrl}/json`,
+      expected: { jsonChecks: [{ path: '$.code', op: 'eq', value: 0 }] },
+    })
+    // 先跑一次产生执行记录
+    const run = await app.inject({ method: 'POST', url: `/api/cases/${c.id}/run` })
+    expect(JSON.parse(run.body).pass).toBe(true)
+
+    // 新建定时任务
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/schedules',
+      payload: { caseId: c.id, cron: '*/30 * * * *' },
+    })
+    expect(create.statusCode).toBe(201)
+    const sid = JSON.parse(create.body).id
+
+    const list = await app.inject({ method: 'GET', url: '/api/schedules' })
+    expect(JSON.parse(list.body).some((s) => s.id === sid)).toBe(true)
+
+    // 非法 cron → 400
+    const bad = await app.inject({ method: 'POST', url: '/api/schedules', payload: { caseId: c.id, cron: 'nope' } })
+    expect(bad.statusCode).toBe(400)
+
+    // 更新：禁用
+    const upd = await app.inject({ method: 'PUT', url: `/api/schedules/${sid}`, payload: { enabled: false } })
+    expect(JSON.parse(upd.body).enabled).toBe(false)
+
+    // 执行记录查询
+    const runs = await app.inject({ method: 'GET', url: `/api/runs?caseId=${c.id}` })
+    const runList = JSON.parse(runs.body)
+    expect(runList.length).toBeGreaterThanOrEqual(1)
+    expect(runList[0].caseName).toBe('M3用例')
+
+    // 报告汇总
+    const rep = await app.inject({ method: 'GET', url: '/api/reports/summary' })
+    const summary = JSON.parse(rep.body)
+    expect(summary.totalCases).toBeGreaterThanOrEqual(1)
+    expect(summary.totalRuns).toBeGreaterThanOrEqual(1)
+    expect(summary.passRate).toBeGreaterThanOrEqual(0)
+    expect(summary.byCase.some((b) => b.caseId === c.id)).toBe(true)
+
+    // 清理
+    await app.inject({ method: 'DELETE', url: `/api/schedules/${sid}` })
+    await app.inject({ method: 'DELETE', url: `/api/cases/${c.id}` })
+  })
+
+  it('schedules 更新不存在的返回 404', async () => {
+    const miss = await app.inject({ method: 'PUT', url: '/api/schedules/999999', payload: { cron: '* * * * *' } })
+    expect(miss.statusCode).toBe(404)
+  })
+
+  it('scheduler 注册/停用/校验', async () => {
+    const { registerJob, stopJob, jobCount } = await import('../src/scheduler.js')
+    const { validateCron } = await import('../src/schedules.js')
+    expect(validateCron('*/5 * * * *')).toBe(true)
+    expect(validateCron('nope')).toBe(false)
+    const c = createCase({ name: '调度器用例', method: 'GET', url: `${targetUrl}/ok` })
+    const s = { id: 99991, caseId: c.id, cron: '*/10 * * * *', enabled: true }
+    registerJob(s)
+    expect(jobCount()).toBeGreaterThanOrEqual(1)
+    stopJob(s.id)
+    expect(jobCount()).toBe(0)
     await app.inject({ method: 'DELETE', url: `/api/cases/${c.id}` })
   })
 })

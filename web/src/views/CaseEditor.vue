@@ -51,6 +51,19 @@
         <el-input v-model="expected.maxTimeMs" type="number" placeholder="毫秒，如 1000（可选）" style="width: 220px" />
       </el-form-item>
 
+      <el-form-item label="JSON 断言">
+        <div v-for="(j, i) in jsonChecksRows" :key="i" class="kv-row">
+          <el-input v-model="j.path" placeholder="路径 如 $.data.code" style="width: 240px" />
+          <el-select v-model="j.op" style="width: 120px">
+            <el-option v-for="o in jsonOps" :key="o" :label="o" :value="o" />
+          </el-select>
+          <el-input v-model="j.value" placeholder="期望值" style="flex: 1" />
+          <el-button text type="danger" @click="jsonChecksRows.splice(i, 1)">移除</el-button>
+        </div>
+        <el-button size="small" @click="jsonChecksRows.push({ path: '', op: 'eq', value: '' })">+ 添加 JSON 断言</el-button>
+        <p class="json-hint">路径：$.a.b / $.arr[0] / $.arr[*] / .length ｜ 操作符：eq ne gt gte lt lte contains exists</p>
+      </el-form-item>
+
       <el-form-item>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
         <el-button @click="$router.push('/')">取消</el-button>
@@ -71,8 +84,10 @@ const id = computed(() => Number(route.params.id))
 const isEdit = computed(() => !!route.params.id)
 
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+const jsonOps = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'exists']
 const form = ref({ name: '', method: 'GET', url: '' })
 const headersRows = ref([{ key: '', value: '' }])
+const jsonChecksRows = ref([{ path: '', op: 'eq', value: '' }])
 const bodyText = ref('')
 const expected = ref({ status: '', contains: '', maxTimeMs: '' })
 const saving = ref(false)
@@ -102,6 +117,10 @@ async function load() {
     contains: c.expected?.contains || '',
     maxTimeMs: c.expected?.maxTimeMs ?? '',
   }
+  jsonChecksRows.value = (c.expected?.jsonChecks?.length
+    ? c.expected.jsonChecks
+    : [{ path: '', op: 'eq', value: '' }]
+  ).map((j) => ({ path: j.path || '', op: j.op || 'eq', value: j.value !== undefined ? String(j.value) : '' }))
 }
 
 function buildPayload() {
@@ -109,6 +128,10 @@ function buildPayload() {
   if (expected.value.status !== '') exp.status = Number(expected.value.status)
   if (expected.value.contains) exp.contains = String(expected.value.contains)
   if (expected.value.maxTimeMs !== '') exp.maxTimeMs = Number(expected.value.maxTimeMs)
+  const checks = jsonChecksRows.value
+    .filter((j) => j.path && j.path.trim())
+    .map((j) => ({ path: j.path.trim(), op: j.op, value: j.value }))
+  if (checks.length) exp.jsonChecks = checks
 
   const payload = {
     name: form.value.name.trim(),
@@ -156,4 +179,5 @@ onMounted(load)
 .editor-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
 .request-row { display: flex; gap: 10px; width: 100%; }
 .kv-row { display: flex; gap: 10px; width: 100%; margin-bottom: 8px; align-items: center; }
+.json-hint { font-size: 12px; color: #909399; margin: 6px 0 0; line-height: 1.6; }
 </style>

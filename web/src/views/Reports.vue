@@ -1,0 +1,185 @@
+<template>
+  <div class="reports">
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="stat-num">{{ summary.totalCases }}</div>
+        <div class="stat-label">用例总数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{ summary.totalRuns }}</div>
+        <div class="stat-label">执行次数</div>
+      </div>
+      <div class="stat-card" :class="passRateClass">
+        <div class="stat-num">{{ summary.passRate }}%</div>
+        <div class="stat-label">通过率</div>
+      </div>
+      <div class="stat-card danger">
+        <div class="stat-num">{{ summary.failedRuns }}</div>
+        <div class="stat-label">失败次数</div>
+      </div>
+    </div>
+
+    <el-card class="sec" shadow="never">
+      <template #header>📊 按用例汇总</template>
+      <el-table :data="summary.byCase" border size="small" v-loading="loading">
+        <el-table-column prop="name" label="用例" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="runs" label="执行" width="70" />
+        <el-table-column label="通过/失败" width="120">
+          <template #default="{ row }">
+            <span class="pass-text">{{ row.passed }}</span> / <span class="fail-text">{{ row.failed }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="通过率" width="140">
+          <template #default="{ row }">
+            <el-progress :percentage="row.passRate" :stroke-width="10" />
+          </template>
+        </el-table-column>
+        <el-table-column label="最近结果" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.lastPass ? 'success' : 'danger'" size="small">{{ row.lastPass ? '通过' : '失败' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="lastRunAt" label="最近运行" width="160" />
+        <template #empty>还没有执行记录——先建用例并运行一次</template>
+      </el-table>
+    </el-card>
+
+    <el-card class="sec" shadow="never">
+      <template #header>🕐 最近执行明细</template>
+      <el-table :data="summary.recentRuns" border size="small">
+        <el-table-column prop="caseName" label="用例" min-width="160" show-overflow-tooltip />
+        <el-table-column label="结果" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.pass ? 'success' : 'danger'" size="small">{{ row.pass ? '通过' : '失败' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态码" width="70" />
+        <el-table-column prop="durationMs" label="耗时(ms)" width="90" />
+        <el-table-column label="明细" min-width="220">
+          <template #default="{ row }">
+            <span class="detail-text">{{ (row.detail || []).join('；') || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="ranAt" label="时间" width="160" />
+      </el-table>
+    </el-card>
+
+    <el-card class="sec" shadow="never">
+      <template #header>⏰ 定时任务（node-cron）</template>
+      <div class="sched-form">
+        <el-select v-model="schedForm.caseId" placeholder="选择要定时跑的用例" style="width: 260px">
+          <el-option v-for="c in cases" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <el-input v-model="schedForm.cron" placeholder="cron 表达式，如 */5 * * * *" style="flex: 1" />
+        <el-button type="primary" :loading="schedSaving" @click="onAddSchedule">添加</el-button>
+      </div>
+      <el-table :data="schedules" border size="small" v-loading="schedLoading">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="caseName" label="用例" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="cron" label="cron" min-width="140" />
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createdAt" label="创建时间" width="160" />
+        <el-table-column label="操作" width="170">
+          <template #default="{ row }">
+            <el-button size="small" @click="onToggleSchedule(row)">{{ row.enabled ? '停用' : '启用' }}</el-button>
+            <el-button size="small" type="danger" @click="onDeleteSchedule(row)">删除</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>还没有定时任务——选一个用例 + cron 表达式添加</template>
+      </el-table>
+    </el-card>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { api } from '../api'
+
+const loading = ref(false)
+const schedLoading = ref(false)
+const schedSaving = ref(false)
+const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], recentRuns: [] })
+const schedules = ref([])
+const cases = ref([])
+const schedForm = ref({ caseId: null, cron: '' })
+
+const passRateClass = computed(() =>
+  summary.value.passRate >= 80 ? 'good' : summary.value.passRate >= 50 ? 'warn' : 'danger',
+)
+
+async function load() {
+  loading.value = true
+  schedLoading.value = true
+  try {
+    const [s, sch, cs] = await Promise.all([api.getReportSummary(), api.listSchedules(), api.listCases()])
+    summary.value = s
+    schedules.value = sch
+    cases.value = cs
+  } catch (e) {
+    ElMessage.error('加载失败：' + (e.response?.data?.error || e.message))
+  } finally {
+    loading.value = false
+    schedLoading.value = false
+  }
+}
+
+async function onAddSchedule() {
+  if (!schedForm.value.caseId) return ElMessage.warning('请选择用例')
+  if (!schedForm.value.cron.trim()) return ElMessage.warning('请填写 cron 表达式')
+  schedSaving.value = true
+  try {
+    await api.createSchedule({ caseId: schedForm.value.caseId, cron: schedForm.value.cron.trim() })
+    ElMessage.success('已添加定时任务')
+    schedForm.value.cron = ''
+    await load()
+  } catch (e) {
+    ElMessage.error('添加失败：' + (e.response?.data?.error || e.message))
+  } finally {
+    schedSaving.value = false
+  }
+}
+
+async function onToggleSchedule(row) {
+  try {
+    await api.updateSchedule(row.id, { enabled: !row.enabled })
+    await load()
+  } catch (e) {
+    ElMessage.error('操作失败：' + (e.response?.data?.error || e.message))
+  }
+}
+
+async function onDeleteSchedule(row) {
+  try {
+    await api.deleteSchedule(row.id)
+    ElMessage.success('已删除')
+    await load()
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e.response?.data?.error || e.message))
+  }
+}
+
+onMounted(load)
+</script>
+
+<style scoped>
+.stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
+.stat-card {
+  background: #fff; border: 1px solid #e4e7ed; border-radius: 10px;
+  padding: 16px; text-align: center;
+}
+.stat-num { font-size: 26px; font-weight: 700; color: #303133; }
+.stat-card.good .stat-num { color: #67c23a; }
+.stat-card.warn .stat-num { color: #e6a23c; }
+.stat-card.danger .stat-num { color: #f56c6c; }
+.stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
+.sec { margin-bottom: 16px; }
+.pass-text { color: #67c23a; font-weight: 600; }
+.fail-text { color: #f56c6c; font-weight: 600; }
+.detail-text { font-size: 12px; color: #909399; }
+.sched-form { display: flex; gap: 10px; margin-bottom: 12px; }
+</style>
