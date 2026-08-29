@@ -5,14 +5,21 @@ import { DatabaseSync } from 'node:sqlite'
 import path from 'node:path'
 import fs from 'node:fs'
 
-const DB_PATH = process.env.DB_PATH || path.resolve(process.cwd(), 'data', 'app.db')
+// 重要：DB_PATH 必须在 getDb() 内部「惰性求值」，不能写成模块顶层 const！
+// 原因：测试里 process.env.DB_PATH=':memory:' 在 import 之后才赋值，
+// 若顶层 const 提前把路径快照下来，:memory: 就永远不生效，
+// 导致测试把用例写成真实 data/app.db（污染生产库 + 跑全部时 fetch 死链）。
+function resolveDbPath() {
+  return process.env.DB_PATH || path.resolve(process.cwd(), 'data', 'app.db')
+}
 
 let _db = null
 
 export function getDb() {
   if (_db) return _db
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
-  _db = new DatabaseSync(DB_PATH)
+  const dbPath = resolveDbPath()
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+  _db = new DatabaseSync(dbPath)
   _db.exec(`
     CREATE TABLE IF NOT EXISTS test_cases (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
