@@ -1,8 +1,34 @@
 import axios from 'axios'
+import { getToken, clearSession } from './auth.js'
 
 const http = axios.create({ baseURL: '/', timeout: 30000 })
 
+// 请求拦截：自动附加 Bearer token
+http.interceptors.request.use((cfg) => {
+  const t = getToken()
+  if (t) cfg.headers.Authorization = 'Bearer ' + t
+  return cfg
+})
+
+// 响应拦截：401 视为登录失效，清 token 并跳登录页
+http.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.response && err.response.status === 401) {
+      clearSession()
+      const cur = location.hash.replace(/^#/, '')
+      if (cur !== '/login') location.hash = '/login'
+    }
+    return Promise.reject(err)
+  },
+)
+
 export const api = {
+  // M4：鉴权
+  login: (username, password) => http.post('/api/auth/login', { username, password }).then((r) => r.data),
+  register: (username, password) => http.post('/api/auth/register', { username, password }).then((r) => r.data),
+  me: () => http.get('/api/auth/me').then((r) => r.data),
+  // 用例
   listCases: () => http.get('/api/cases').then((r) => r.data),
   getCase: (id) => http.get(`/api/cases/${id}`).then((r) => r.data),
   createCase: (payload) => http.post('/api/cases', payload).then((r) => r.data),

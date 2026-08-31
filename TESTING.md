@@ -1,6 +1,6 @@
 # API 自动化测试平台 · 测试手册
 
-> 适用版本：M3（Fastify 5 + Node 22 内置 `node:sqlite` + Vue3 前端）
+> 适用版本：M4（Fastify 5 + Node 22 内置 `node:sqlite` + 手写鉴权 + Vue3 前端）
 > 本文覆盖两类测试：**① 自动化测试套件**（开发者/CI 用）与 **② 平台使用自测**（用平台本身验证功能）。
 
 ---
@@ -25,15 +25,16 @@ npm test
 ```
 
 - 框架：vitest（`vitest run`，单次非监听）
-- 覆盖：`tests/app.test.js`（19 例）、`tests/jsonpath.test.js`（9 例）
-- 预期：`Test Files 2 passed`、`Tests 28 passed`
+- 覆盖：`tests/app.test.js`（19 例）、`tests/jsonpath.test.js`（9 例）、`tests/auth.test.js`（9 例）
+- 预期：`Test Files 3 passed`、`Tests 37 passed`
 
 ### 1.2 测试隔离机制（重要）
 
 测试**绝不污染**真实 `data/app.db`，原理有两层保险：
 
-1. `vitest.config.js` 配置了 `setupFiles: ['tests/setup.js']`，该文件在**任何测试模块 import 之前**执行 `process.env.DB_PATH = ':memory:'`。
+1. `vitest.config.js` 配置了 `setupFiles: ['tests/setup.js']`，该文件在**任何测试模块 import 之前**执行 `process.env.DB_PATH = ':memory:'` 与 `process.env.API_AUTH_DISABLED = '1'`。
 2. `src/db.js` 的 `DB_PATH` 改为在 `getDb()` 内**惰性解析**（不写成模块顶层 `const`），确保上面的环境变量生效。
+3. 鉴权守卫同理：`API_AUTH_DISABLED=1` 时 `authGuard` 直接放行，既有用例无需 token。鉴权能力由 `tests/auth.test.js` **单独**验证（该文件会覆盖开关为 `0`，让守卫真正生效）。
 
 > 历史坑：曾把 `DB_PATH` 写在模块顶层 `const`，导致 import 时路径被快照、`:memory:` 永不生效，测试把用例写进了真实库——表现为「全部运行」出现一堆指向死链 `127.0.0.1:随机端口` 的 `fetch failed`。现已修复并通过 `npm test` 验证不会复现。
 
@@ -46,6 +47,7 @@ npm test
 | 用例 CRUD | 新建→查询→更新→删除闭环、部分更新保持原值、缺字段报错、404 |
 | HTTP 层 | `/health`、`/api/cases` 增删查改、`/api/run-all` 汇总、缺 url 返回 400 |
 | 定时任务（M3） | schedules 增删改查、非法 cron 返回 400、报告汇总、scheduler 注册/停用/校验 |
+| 鉴权（M4） | 注册（成功/密码过短/重名）、登录（正确/错误密码）、无 token 访问受保护路由 401、带 token 200、`/api/auth/me`、`/health` 免鉴权 |
 
 ---
 
@@ -73,6 +75,9 @@ npm run dev        # 后端 :3001 + 前端 :5173 同时起（concurrently）
 
 打开前端 `http://localhost:5173`，后端 API 在 `http://localhost:3001`。
 
+> **M4 鉴权**：打开前端会先跳到登录页。**默认管理员 `admin / admin123`**（首次启动自动创建，库里已有用户后不再创建）。也可用登录页「注册并登录」新建账号。未带 `Authorization: Bearer <token>` 调 `/api/*` 会返回 401。
+> 生产部署务必设 `JWT_SECRET`（默认 `dev-secret-change-me`），否则 token 可被伪造。
+
 ### 2.2 用平台本身做冒烟自测（推荐用例）
 
 把下面这个用例加进平台，它打的是平台自己的 `/health`，**永远可达**，适合当冒烟用例：
@@ -99,17 +104,28 @@ npm run dev        # 后端 :3001 + 前端 :5173 同时起（concurrently）
 - [ ] **定时任务**：新建一条 `*/5 * * * *` 的定时，列表出现且 `enabled=1`；改 cron 为 `nope` 应报 400；删除后列表消失。
 - [ ] **报告**：跑过几次后打开「报告」页，`/api/reports/summary` 返回 `totalCases / totalRuns / passRate / byCase`，数据与实际一致。
 - [ ] **运行时长**：报告里能看到每次运行的 `durationMs`。
+- [ ] **登录鉴权（M4）**：未登录访问前端跳 `/login`；用 `admin/admin123` 登录后进入列表；点右上角「退出」再访问受保护页会回登录页。直接 `curl` 不带 token 调 `/api/cases` 返回 401，带 token 返回 200。
 
 ### 2.4 命令行快速验证（无需开前端）
 
 ```bash
 # 后端已在 :3001 运行时
+# 1) 先登录拿 token
+TOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).token))")
+
+# 2) 带 token 调受保护接口
 curl -X POST http://localhost:3001/api/cases \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name":"自检-health","method":"GET","url":"http://localhost:3001/health","expected":{"status":200,"contains":"ok","jsonChecks":[{"path":"$.ok","op":"eq","value":true}]}}'
 
-curl -X POST http://localhost:3001/api/run-all      # 全部运行汇总
-curl http://localhost:3001/api/reports/summary      # 报告汇总
+curl -X POST http://localhost:3001/api/run-all -H "Authorization: Bearer $TOKEN"   # 全部运行汇总
+curl http://localhost:3001/api/reports/summary -H "Authorization: Bearer $TOKEN"   # 报告汇总
+
+# 3) 不带 token 应 401
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/api/cases
 ```
 
 ---

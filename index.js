@@ -20,11 +20,57 @@ import { runCase, runAll } from './src/runner.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
+import { signToken, verifyToken } from './src/auth.js'
+import { createUser, verifyLogin, initDefaultUser } from './src/users.js'
+
+// 鉴权守卫：除健康检查与登录/注册外，所有 /api 路由必须带有效 Bearer token。
+// 测试旁路：process.env.API_AUTH_DISABLED === '1' 时直接放行（见 tests/setup.js）。
+async function authGuard(req, reply) {
+  if (process.env.API_AUTH_DISABLED === '1') return
+  if (req.url === '/health') return
+  if (req.url.startsWith('/api/auth/login') || req.url.startsWith('/api/auth/register')) return
+  const m = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
+  if (!m) return reply.code(401).send({ error: '未登录或缺少 token' })
+  try {
+    req.user = verifyToken(m[1])
+  } catch (e) {
+    return reply.code(401).send({ error: 'token 无效或已过期：' + e.message })
+  }
+}
 
 export function buildApp() {
   const app = Fastify({ logger: false })
 
+  // 全局 onRequest 守卫（在所有 /api 路由之前生效）
+  app.addHook('onRequest', authGuard)
+
   app.get('/health', async () => ({ ok: true, service: 'api-test-platform', ts: Date.now() }))
+
+  // —— 鉴权（M4）——
+  app.post('/api/auth/register', async (req, reply) => {
+    try {
+      const { username, password } = req.body || {}
+      if (!username || !password) return reply.code(400).send({ error: '用户名和密码必填' })
+      if (String(password).length < 6) return reply.code(400).send({ error: '密码至少 6 位' })
+      const u = createUser({ username, password })
+      const token = signToken({ sub: u.id, username: u.username, role: u.role })
+      return reply.code(201).send({ token, user: { id: u.id, username: u.username, role: u.role } })
+    } catch (e) {
+      return reply.code(400).send({ error: e.message })
+    }
+  })
+
+  app.post('/api/auth/login', async (req, reply) => {
+    const { username, password } = req.body || {}
+    const u = verifyLogin(username, password)
+    if (!u) return reply.code(401).send({ error: '用户名或密码错误' })
+    const token = signToken({ sub: u.id, username: u.username, role: u.role })
+    return { token, user: { id: u.id, username: u.username, role: u.role } }
+  })
+
+  app.get('/api/auth/me', async (req) => ({
+    user: { id: req.user.sub, username: req.user.username, role: req.user.role },
+  }))
 
   app.get('/api/cases', async () => listCases())
 
@@ -129,9 +175,11 @@ if (isDirectRun) {
   const app = buildApp()
   const port = Number(process.env.PORT) || 3001
   app.listen({ port, host: '0.0.0.0' }).then(() => {
+    // 首次启动种入默认管理员（库里没用户时才建）
+    initDefaultUser()
     // 直接运行时启动定时调度器（测试里不启动，保证隔离）
     startScheduler()
-    console.log(`✅ API 测试平台 M3 已启动：http://localhost:${port}（定时任务已恢复）`)
+    console.log(`✅ API 测试平台 M4 已启动：http://localhost:${port}（定时任务已恢复）`)
   }).catch((e) => {
     console.error('启动失败：', e.message)
     process.exit(1)
