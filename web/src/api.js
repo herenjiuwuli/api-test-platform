@@ -28,6 +28,8 @@ export const api = {
   login: (username, password) => http.post('/api/auth/login', { username, password }).then((r) => r.data),
   register: (username, password) => http.post('/api/auth/register', { username, password }).then((r) => r.data),
   me: () => http.get('/api/auth/me').then((r) => r.data),
+  changePassword: (oldPassword, newPassword) =>
+    http.post('/api/auth/change-password', { oldPassword, newPassword }).then((r) => r.data),
   // 用例
   listCases: () => http.get('/api/cases').then((r) => r.data),
   getCase: (id) => http.get(`/api/cases/${id}`).then((r) => r.data),

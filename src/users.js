@@ -30,6 +30,17 @@ export function verifyLogin(username, password) {
   return { id: u.id, username: u.username, role: u.role }
 }
 
+// 修改密码（M5）：校验原密码后更新哈希；新密码至少 6 位。
+export function changePassword(userId, oldPassword, newPassword) {
+  const db = getDb()
+  if (!newPassword || String(newPassword).length < 6) throw new Error('新密码至少 6 位')
+  const u = db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(userId)
+  if (!u) throw new Error('用户不存在')
+  if (!verifyPassword(oldPassword || '', u.password_hash)) throw new Error('原密码错误')
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), u.id)
+  return true
+}
+
 // 仅首次启动时调用：库里一个用户都没有才建默认 admin。
 export function initDefaultUser() {
   const db = getDb()

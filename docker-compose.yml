@@ -1,0 +1,16 @@
+services:
+  api-test-platform:
+    build: .
+    image: api-test-platform:latest
+    container_name: api-test-platform
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      # ⚠️ 生产务必改成你自己的长随机字符串（否则 token 可被伪造）
+      - JWT_SECRET=请改成你自己的长随机字符串至少32位
+    volumes:
+      # 持久化 SQLite 数据库（重启不丢数据）
+      - ./data:/app/data
+    restart: unless-stopped

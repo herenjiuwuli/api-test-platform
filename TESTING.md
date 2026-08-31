@@ -1,6 +1,6 @@
 # API 自动化测试平台 · 测试手册
 
-> 适用版本：M4（Fastify 5 + Node 22 内置 `node:sqlite` + 手写鉴权 + Vue3 前端）
+> 适用版本：M5（Fastify 5 + Node 22 内置 `node:sqlite` + 手写鉴权 + 单端口部署 + Vue3 前端）
 > 本文覆盖两类测试：**① 自动化测试套件**（开发者/CI 用）与 **② 平台使用自测**（用平台本身验证功能）。
 
 ---
@@ -25,8 +25,8 @@ npm test
 ```
 
 - 框架：vitest（`vitest run`，单次非监听）
-- 覆盖：`tests/app.test.js`（19 例）、`tests/jsonpath.test.js`（9 例）、`tests/auth.test.js`（9 例）
-- 预期：`Test Files 3 passed`、`Tests 37 passed`
+- 覆盖：`tests/app.test.js`（19 例）、`tests/jsonpath.test.js`（9 例）、`tests/auth.test.js`（13 例）
+- 预期：`Test Files 3 passed`、`Tests 41 passed`
 
 ### 1.2 测试隔离机制（重要）
 
@@ -48,6 +48,8 @@ npm test
 | HTTP 层 | `/health`、`/api/cases` 增删查改、`/api/run-all` 汇总、缺 url 返回 400 |
 | 定时任务（M3） | schedules 增删改查、非法 cron 返回 400、报告汇总、scheduler 注册/停用/校验 |
 | 鉴权（M4） | 注册（成功/密码过短/重名）、登录（正确/错误密码）、无 token 访问受保护路由 401、带 token 200、`/api/auth/me`、`/health` 免鉴权 |
+| 改密（M5） | 修改密码（无 token 401 / 原密码错误 400 / 成功后旧密码失效且新密码可用） |
+| 守卫边界（M5） | 非 `/api` 路径（前端页面/静态资源）免鉴权——回归测试：曾误拦导致部署后登录页自身 401 |
 
 ---
 
@@ -105,6 +107,8 @@ npm run dev        # 后端 :3001 + 前端 :5173 同时起（concurrently）
 - [ ] **报告**：跑过几次后打开「报告」页，`/api/reports/summary` 返回 `totalCases / totalRuns / passRate / byCase`，数据与实际一致。
 - [ ] **运行时长**：报告里能看到每次运行的 `durationMs`。
 - [ ] **登录鉴权（M4）**：未登录访问前端跳 `/login`；用 `admin/admin123` 登录后进入列表；点右上角「退出」再访问受保护页会回登录页。直接 `curl` 不带 token 调 `/api/cases` 返回 401，带 token 返回 200。
+- [ ] **修改密码（M5）**：右上角用户名下拉「修改密码」→ 填原密码 + 新密码（≥6 位，两次一致）→ 确定后自动退出回登录页；用新密码可登录、旧密码登录失败。
+- [ ] **单端口部署（M5）**：`npm --prefix web run build` 后 `npm start`，浏览器直接访问 `http://localhost:3001` 即可打开整个前端（无需开 :5173），刷新 `/reports` 等前端路由不 404。
 
 ### 2.4 命令行快速验证（无需开前端）
 

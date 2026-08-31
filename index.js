@@ -14,19 +14,28 @@
 //   DELETE /api/schedules/:id     删除定时任务
 //   GET  /api/runs                执行记录（?caseId=&limit=）
 //   GET  /api/reports/summary     报告汇总
+//   POST /api/auth/register       注册（免鉴权）
+//   POST /api/auth/login          登录（免鉴权）
+//   GET  /api/auth/me             当前用户
+//   POST /api/auth/change-password 修改密码（需鉴权）
+//   /*（生产）                     托管前端 web/dist（仅构建后存在时注册）
 import Fastify from 'fastify'
+import path from 'node:path'
+import fs from 'node:fs'
 import { createCase, listCases, getCase, updateCase, deleteCase } from './src/cases.js'
 import { runCase, runAll } from './src/runner.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
 import { signToken, verifyToken } from './src/auth.js'
-import { createUser, verifyLogin, initDefaultUser } from './src/users.js'
+import { createUser, verifyLogin, initDefaultUser, changePassword } from './src/users.js'
 
-// 鉴权守卫：除健康检查与登录/注册外，所有 /api 路由必须带有效 Bearer token。
-// 测试旁路：process.env.API_AUTH_DISABLED === '1' 时直接放行（见 tests/setup.js）。
+// 鉴权守卫：除健康检查、登录/注册外，所有 /api 路由必须带有效 Bearer token。
+// 注意：静态资源与前端的 SPA 页面（/、/reports、/cases/... 等非 /api 路径）一律公开，
+// 否则部署后登录页自身都打不开（会吃 401）。测试旁路：API_AUTH_DISABLED==='1' 全放行。
 async function authGuard(req, reply) {
   if (process.env.API_AUTH_DISABLED === '1') return
+  if (!req.url.startsWith('/api')) return // 静态资源 / 前端页面公开
   if (req.url === '/health') return
   if (req.url.startsWith('/api/auth/login') || req.url.startsWith('/api/auth/register')) return
   const m = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
@@ -71,6 +80,16 @@ export function buildApp() {
   app.get('/api/auth/me', async (req) => ({
     user: { id: req.user.sub, username: req.user.username, role: req.user.role },
   }))
+
+  app.post('/api/auth/change-password', async (req, reply) => {
+    try {
+      const { oldPassword, newPassword } = req.body || {}
+      changePassword(req.user.sub, oldPassword, newPassword)
+      return { ok: true }
+    } catch (e) {
+      return reply.code(400).send({ error: e.message })
+    }
+  })
 
   app.get('/api/cases', async () => listCases())
 
@@ -162,6 +181,40 @@ export function buildApp() {
 
   app.get('/api/reports/summary', async () => getReportSummary())
 
+  // —— 生产静态托管（M5）——
+  // 构建前端后由后端同源托管，实现单端口部署（Docker / 云服务器 / PM2）。
+  // 仅当 web/dist 存在时注册；本地 dev 模式不走这里（前端由 Vite dev server 提供）。
+  const distDir = path.resolve(process.cwd(), 'web', 'dist')
+  if (fs.existsSync(distDir) && fs.statSync(distDir).isDirectory()) {
+    const MIME = {
+      '.html': 'text/html; charset=utf-8',
+      '.js': 'text/javascript',
+      '.css': 'text/css',
+      '.json': 'application/json',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.ico': 'image/x-icon',
+      '.woff2': 'font/woff2',
+      '.woff': 'font/woff',
+    }
+    app.get('/*', async (req, reply) => {
+      const urlPath = decodeURIComponent((req.url || '/').split('?')[0])
+      // /api 与 /health 已由上面的具体路由处理；此处兜底未命中文件时回退 index.html
+      if (urlPath.startsWith('/api')) return reply.code(404).send({ error: 'Not Found' })
+      const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '')
+      const target = path.resolve(distDir, rel)
+      // 防目录穿越 + 文件缺失 → SPA 回退
+      if (!target.startsWith(distDir) || !fs.existsSync(target) || fs.statSync(target).isDirectory()) {
+        const idx = fs.readFileSync(path.join(distDir, 'index.html'))
+        return reply.type('text/html; charset=utf-8').send(idx)
+      }
+      const ext = path.extname(target).toLowerCase()
+      return reply.type(MIME[ext] || 'application/octet-stream').send(fs.readFileSync(target))
+    })
+  }
+
   return app
 }
 
@@ -179,7 +232,7 @@ if (isDirectRun) {
     initDefaultUser()
     // 直接运行时启动定时调度器（测试里不启动，保证隔离）
     startScheduler()
-    console.log(`✅ API 测试平台 M4 已启动：http://localhost:${port}（定时任务已恢复）`)
+    console.log(`✅ API 测试平台 M5 已启动：http://localhost:${port}（定时任务已恢复）`)
   }).catch((e) => {
     console.error('启动失败：', e.message)
     process.exit(1)

@@ -1,0 +1,12 @@
+node_modules
+web/node_modules
+data
+.git
+.gitignore
+*.log
+npm-debug.log*
+tests
+Dockerfile
+.dockerignore
+.docker
+compose.override.yml
