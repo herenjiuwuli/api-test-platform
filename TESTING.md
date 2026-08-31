@@ -1,0 +1,125 @@
+# API 自动化测试平台 · 测试手册
+
+> 适用版本：M3（Fastify 5 + Node 22 内置 `node:sqlite` + Vue3 前端）
+> 本文覆盖两类测试：**① 自动化测试套件**（开发者/CI 用）与 **② 平台使用自测**（用平台本身验证功能）。
+
+---
+
+## 0. 环境准备
+
+```bash
+node -v          # 需要 Node 22+（用到内置 node:sqlite）
+npm install      # 安装 fastify / node-cron / vitest / concurrently
+```
+
+> 说明：数据库默认落在 `data/app.db`（已被 `.gitignore` 忽略，属运行时数据，可随时删除重置）。
+
+---
+
+## 1. 自动化测试套件（推荐，最先跑）
+
+### 1.1 运行
+
+```bash
+npm test
+```
+
+- 框架：vitest（`vitest run`，单次非监听）
+- 覆盖：`tests/app.test.js`（19 例）、`tests/jsonpath.test.js`（9 例）
+- 预期：`Test Files 2 passed`、`Tests 28 passed`
+
+### 1.2 测试隔离机制（重要）
+
+测试**绝不污染**真实 `data/app.db`，原理有两层保险：
+
+1. `vitest.config.js` 配置了 `setupFiles: ['tests/setup.js']`，该文件在**任何测试模块 import 之前**执行 `process.env.DB_PATH = ':memory:'`。
+2. `src/db.js` 的 `DB_PATH` 改为在 `getDb()` 内**惰性解析**（不写成模块顶层 `const`），确保上面的环境变量生效。
+
+> 历史坑：曾把 `DB_PATH` 写在模块顶层 `const`，导致 import 时路径被快照、`:memory:` 永不生效，测试把用例写进了真实库——表现为「全部运行」出现一堆指向死链 `127.0.0.1:随机端口` 的 `fetch failed`。现已修复并通过 `npm test` 验证不会复现。
+
+### 1.3 测试覆盖点
+
+| 模块 | 验证内容 |
+|------|----------|
+| runner 引擎 | 状态码断言、响应体包含、网络不可达错误、runAll 顺序执行 |
+| JSONPath 断言（M3） | `eq/ne/gt/gte/lt/lte/contains/exists`、数组下标、通配 `[*]`、嵌套路径、非 JSON 响应 |
+| 用例 CRUD | 新建→查询→更新→删除闭环、部分更新保持原值、缺字段报错、404 |
+| HTTP 层 | `/health`、`/api/cases` 增删查改、`/api/run-all` 汇总、缺 url 返回 400 |
+| 定时任务（M3） | schedules 增删改查、非法 cron 返回 400、报告汇总、scheduler 注册/停用/校验 |
+
+---
+
+## 2. 平台使用自测（端到端，验证真实功能）
+
+### 2.1 启动
+
+```bash
+npm run dev        # 后端 :3001 + 前端 :5173 同时起（concurrently）
+# 或仅后端： npm start        （端口 3001，会顺带恢复启用的定时任务）
+# 或仅前端： npm --prefix web run dev
+```
+
+打开前端 `http://localhost:5173`，后端 API 在 `http://localhost:3001`。
+
+### 2.2 用平台本身做冒烟自测（推荐用例）
+
+把下面这个用例加进平台，它打的是平台自己的 `/health`，**永远可达**，适合当冒烟用例：
+
+| 字段 | 值 |
+|------|-----|
+| name | 自检-health |
+| method | GET |
+| url | `http://localhost:3001/health` |
+| 断言-状态码 | 200 |
+| 断言-包含 | `ok` |
+| JSONPath 断言 | `$.ok` `eq` `true` |
+
+预期：单跑 → `pass: true, status: 200`。
+
+### 2.3 功能自检清单
+
+逐项点一遍，全部应正常：
+
+- [ ] **新建用例**：填 name/url 必填，其余可选；缺 url 前端/后端都应拦截。
+- [ ] **单跑**：点某用例「运行」→ 返回状态码、耗时、断言明细。
+- [ ] **全部运行**：点「全部运行」→ 返回 `{ total, passed, failed, results }`，无 `fetch failed`（除非用例 URL 真不可达）。
+- [ ] **JSONPath 断言**：用 2.2 的用例验证 `$.ok eq true` 通过；改 `value:false` 应判定失败并给出「实际 true」明细。
+- [ ] **定时任务**：新建一条 `*/5 * * * *` 的定时，列表出现且 `enabled=1`；改 cron 为 `nope` 应报 400；删除后列表消失。
+- [ ] **报告**：跑过几次后打开「报告」页，`/api/reports/summary` 返回 `totalCases / totalRuns / passRate / byCase`，数据与实际一致。
+- [ ] **运行时长**：报告里能看到每次运行的 `durationMs`。
+
+### 2.4 命令行快速验证（无需开前端）
+
+```bash
+# 后端已在 :3001 运行时
+curl -X POST http://localhost:3001/api/cases \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"自检-health","method":"GET","url":"http://localhost:3001/health","expected":{"status":200,"contains":"ok","jsonChecks":[{"path":"$.ok","op":"eq","value":true}]}}'
+
+curl -X POST http://localhost:3001/api/run-all      # 全部运行汇总
+curl http://localhost:3001/api/reports/summary      # 报告汇总
+```
+
+---
+
+## 3. 重置 / 清理
+
+库是普通的 SQLite 文件，遇到脏数据直接删文件即可（服务未运行时删最安全）：
+
+```bash
+# 停止服务后
+rm -f data/app.db
+# 重启会自动建表（空库）
+```
+
+> 跑自动化测试（`npm test`）用的是 `:memory:`，完全不影响 `data/app.db`，可随时放心运行。
+
+---
+
+## 4. 已知边界 / 排错
+
+- **只支持 GET/POST 等标准 HTTP 方法**；`fetch` 不支持的协议（如 ftp）会 `fetch failed`。
+- **`fetch failed` 几乎都是用例 URL 不可达**（端口没开、域名拼错、目标服务未启动）。自查：在浏览器/Postman 先能访问该 URL，再填进用例。
+- **`maxTimeMs` 超时断言**：目标响应慢于阈值即判失败，调大阈值或优化目标接口。
+- **定时任务进程内生效**：`startScheduler()` 仅在 `node index.js` 直接运行时启动；`npm test` 不启动，保证测试隔离。
+- 所有接口返回 JSON；状态码约定：201 新建成功、400 参数错误、404 资源不存在。
