@@ -43,6 +43,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 测试与构建：
 
 ```bash
+npm run seed       # 写入 3 条示例用例（平台自检 + 2 个公开接口），首次打开就有东西可跑
 npm test           # vitest 28 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
