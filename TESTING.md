@@ -55,15 +55,18 @@ npm test
 
 ## 1.4 一键填充示例用例（推荐，先看效果）
 
-不想自己录用例？`npm run seed` 会写入 3 条示例用例（幂等，可反复跑）：
+不想自己录用例？`npm run seed` 会写入 5 条示例用例 + 1 条演示定时任务（幂等，可反复跑），覆盖平台所有断言维度：
 
 | 示例用例 | 目标 | 断言 |
 |---------|------|------|
-| 示例-平台自检(/health) | `http://localhost:3001/health` | 状态码 200 + 包含 `ok` + `$.ok eq true` |
-| 示例-公开接口(Postman Echo) | `https://postman-echo.com/get` | 状态码 200 + `$.url contains postman-echo` |
-| 示例-公开接口(JSONPlaceholder) | `https://jsonplaceholder.typicode.com/todos/1` | 状态码 200 + `$.id eq 1` + `$.completed eq false` |
+| 示例-平台自检(/health) | `http://localhost:3001/health` | 状态码 200 + 包含 `ok` + `$.ok eq true`（**离线必绿**） |
+| 示例-GET+JSONPath(JSONPlaceholder) | `https://jsonplaceholder.typicode.com/todos/1` | 状态码 200 + `$.id eq 1` + `$.completed eq false` + `$.userId eq 1` |
+| 示例-数组断言(JSONPlaceholder/users) | `https://jsonplaceholder.typicode.com/users` | 状态码 200 + `$.length gte 5` + `$.1.name exists` |
+| 示例-POST+请求体(httpbin) | `https://httpbin.org/post` | 状态码 200 + `$.json.title contains apitest` + `$.json.done eq false` |
+| 示例-性能断言(httpbin/get) | `https://httpbin.org/get` | 状态码 200 + `maxTimeMs 5000` |
 
-> 第 1 条指向本平台自身，离线也必绿；后两条是真实公开接口，需联网。填好后点「全部运行」即可看到绿油油的汇总，适合截图/演示。
+> 演示定时任务：每天 `0 9 * * *` 自动跑「JSONPath 示例」用例，**默认停用**，在「报告 / 定时」页启用即可看到定时执行。
+> 第 1 条指向本平台自身，离线也必绿；后四条是真实公开接口，需联网。填好后点「全部运行」即可看到绿油油的汇总，适合截图/演示。
 
 ## 2. 平台使用自测（端到端，验证真实功能）
 

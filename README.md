@@ -57,8 +57,8 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 测试与构建：
 
 ```bash
-npm run seed       # 写入 3 条示例用例（平台自检 + 2 个公开接口），首次打开就有东西可跑
-npm test           # vitest 37 例全绿（28 旧 + 9 鉴权，全离线）
+npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
+npm test           # vitest 41 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
@@ -77,7 +77,9 @@ cd web && npm run build   # 前端产物 web/dist
 | **M3** | 断言(JSONPath) + `node-cron` 定时跑 + 报告 | ✅ 已完成（28 例） |
 | **M4** | 登录鉴权（scrypt + 手写 HS256 JWT + 前端登录页/守卫） | ✅ 已完成（37 例） |
 | **M5** | 单端口部署（Docker / VPS / Railway / Render）+ 修改密码接口 | ✅ 已完成（41 例） |
-| **M6** | 教学博客 / 演示数据打磨（有余力） | ⏳ |
+| **M6** | 演示数据打磨（覆盖全断言类型 + 演示定时任务）+ 项目全讲（教学/作品集文档） | ✅ 已完成 |
+
+> 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 
 ## 目录
 
