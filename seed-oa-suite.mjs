@@ -263,6 +263,63 @@ const cases = [
     headers: auth('token_doomed'),
     expected: { status: 401, contains: 'token 已登出' },
   },
+
+  // ── F. 附件的「边界面」：平台执行器只发 JSON，这里覆盖的是**不需要传文件**的那几条分支 ──
+  // 诚实说明：要真发一个 multipart 文件请求，得先扩执行器（它现在只会 JSON.stringify(body)）。
+  //   所以下面断言的是「父资源先判 / 守卫在前 / 可见性」这些**根本不看 body** 的分支；
+  //   真正传文件、嗅探魔数、大小临界、并发上限那些，由 office-oa 自己的 vitest + Playwright 兜。
+  //   写清楚这段边界，比含糊说一句「附件也测了」有用得多。
+  {
+    name: `${TAG}30 未登录看附件列表 → 401（守卫在前，连单据存在与否都不谈）`,
+    method: 'GET',
+    url: `${BASE}/api/requests/1/attachments`,
+    expected: { status: 401, contains: '未登录或缺少 token' },
+  },
+  {
+    name: `${TAG}31 再建一张草稿（抽出 rid2，给附件用例当靶子）`,
+    ...post('/api/requests', 'token_emp', {
+      type: 'purchase',
+      title: '平台链式用例-附件靶子',
+      formData: { item: '附件靶子物料', amount: 1, reason: '给附件边界断言当靶子' },
+    }),
+    expected: { status: 201, jsonChecks: [{ path: '$.status', op: 'eq', value: 'draft' }] },
+    extract: [{ name: 'rid2', path: '$.id' }],
+  },
+  {
+    name: `${TAG}32 ★ 附件列表：申请人看自己的草稿 → 200（横向越权的正面对照）`,
+    method: 'GET',
+    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    headers: auth('token_emp'),
+    expected: { status: 200, jsonChecks: [{ path: '$.total', op: 'eq', value: 0 }] },
+  },
+  {
+    name: `${TAG}33 ★ 附件列表：外部门经理看别人的单据 → 403（和单据详情同一道可见性）`,
+    method: 'GET',
+    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    headers: auth('token_other_mgr'),
+    expected: { status: 403, contains: '无权查看该单据' },
+  },
+  {
+    // 顺序钉死：附件接口本身是 multipart 的，但「父资源存不存在」必须**先**判。
+    //   否则一个不存在的单据会先收到「请用 multipart 上传」，等于把父资源校验让到了 body 校验后面。
+    name: `${TAG}34 ★ 给不存在的单据传附件 → 404（父资源先于 body 校验）`,
+    ...post('/api/requests/999999/attachments', 'token_emp', { file: 'whatever' }),
+    expected: { status: 404, contains: '单据不存在' },
+  },
+  {
+    // 单据存在、也是可编辑态，但 body 不是 multipart → 400。这条同时是**能力边界的标记**：
+    //   平台能验到「非 multipart 会被挡」，但它发不出一个真正的 multipart 请求。
+    name: `${TAG}35 ★ 用 JSON 上传附件 → 400（该接口只收 multipart/form-data）`,
+    ...post('/api/requests/{{rid2}}/attachments', 'token_emp', { file: 'not-a-file' }),
+    expected: { status: 400, contains: 'multipart/form-data' },
+  },
+  {
+    name: `${TAG}36 ★ 删除不存在的附件 → 404`,
+    method: 'DELETE',
+    url: `${BASE}/api/attachments/999999`,
+    headers: auth('token_emp'),
+    expected: { status: 404, contains: '附件不存在' },
+  },
 ]
 
 // —— 幂等写入：先清掉上一版 OA- 用例（连带定时任务），再按顺序插入 ——
@@ -275,4 +332,4 @@ for (const c of cases) createCase(c)
 console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条），被测地址 ${BASE}`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
-console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废`)
+console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}33 附件可见性`)

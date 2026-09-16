@@ -64,12 +64,12 @@ cd web && npm run build   # 前端产物 web/dist
 测穿配套的被测系统（闭环）：
 
 ```bash
-npm run seed:oa    # 写入 29 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废）
+npm run seed:oa    # 写入 36 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面）
 npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代码起进程）
                    # 等价于 POST /api/run-all {"prefix":"OA-"}；任一条失败即以非 0 退出，可挂 CI
 ```
 
-> ⭐ 这条闭环（含三个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
+> ⭐ 这条闭环（含四个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
 
 ## 鉴权说明（M4）
 
@@ -102,7 +102,7 @@ npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代�
 | **M4** | 登录鉴权（scrypt + 手写 HS256 JWT + 前端登录页/守卫） | ✅ 已完成（37 例） |
 | **M5** | 单端口部署（Docker / VPS / Railway / Render）+ 修改密码接口 | ✅ 已完成（70 例） |
 | **M6** | 演示数据打磨（覆盖全断言类型 + 演示定时任务）+ 项目全讲（教学/作品集文档） | ✅ 已完成 |
-| **M7** | **用例链（`{{var}}` + extract + 按创建顺序串链）+ 分组跑 + 测穿 office-oa（29/29）** | ✅ 已完成（70 例 + OA 29 条） |
+| **M7** | **用例链（`{{var}}` + extract + 按创建顺序串链）+ 分组跑 + 测穿 office-oa（36/36，含附件边界面）** | ✅ 已完成（70 例 + OA 36 条） |
 
 > 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 > 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
@@ -121,7 +121,7 @@ src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断�
 src/schedules.js  定时任务 CRUD（cron 校验）
 src/scheduler.js  node-cron 调度器（注册/启停/恢复）
 src/reports.js    执行记录查询 + 报告聚合
-seed-oa-suite.mjs office-oa 用例套件（29 条，用例链）— npm run seed:oa
+seed-oa-suite.mjs office-oa 用例套件（36 条，用例链 + 附件边界面）— npm run seed:oa
 run-oa-suite.mjs  一键跑 OA 套件并打印结果 — npm run test:oa
 tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js  共 70 例，全离线
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
