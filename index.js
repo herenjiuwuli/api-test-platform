@@ -25,6 +25,8 @@ import Fastify from 'fastify'
 import path from 'node:path'
 import fs from 'node:fs'
 import { createCase, listCases, getCase, updateCase, deleteCase } from './src/cases.js'
+import { BODY_TYPES } from './src/bodyTypes.js'
+import { FIXTURES, fixtureNames } from './src/fixtures.js'
 import { runCase, runAll } from './src/runner.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
@@ -95,6 +97,16 @@ export function buildApp() {
   })
 
   app.get('/api/cases', async () => listCases())
+
+  // M8：前端要渲染「请求体类型」和「文件夹具」的选择器。
+  // 这里把可选值吐给前端，而不是在前端再抄一份 —— 夹具只有一份事实来源（src/fixtures.js）。
+  app.get('/api/meta/body-options', async () => ({
+    bodyTypes: BODY_TYPES,
+    fixtures: fixtureNames().map((name) => {
+      const f = FIXTURES[name]
+      return { name, label: f.label, filename: f.filename, contentType: f.contentType }
+    }),
+  }))
 
   app.post('/api/cases', async (req, reply) => {
     try {

@@ -32,6 +32,8 @@ export const api = {
     http.post('/api/auth/change-password', { oldPassword, newPassword }).then((r) => r.data),
   // 用例
   listCases: () => http.get('/api/cases').then((r) => r.data),
+  // M8：请求体类型与文件夹具的可选值（唯一事实来源在后端）
+  bodyOptions: () => http.get('/api/meta/body-options').then((r) => r.data),
   getCase: (id) => http.get(`/api/cases/${id}`).then((r) => r.data),
   createCase: (payload) => http.post('/api/cases', payload).then((r) => r.data),
   updateCase: (id, payload) => http.put(`/api/cases/${id}`, payload).then((r) => r.data),

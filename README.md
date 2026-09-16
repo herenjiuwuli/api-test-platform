@@ -9,7 +9,7 @@
 - 前端：**Vue3 + Vite + Element Plus** + vue-router + axios（`web/` 子目录）
 - 测试：**Vitest**
 
-## 当前能力（M1–M6）
+## 当前能力（M1–M8）
 
 - **鉴权（M4，零依赖实现）**：
   - 密码哈希：Node 内置 `crypto.scrypt`（加盐 + `timingSafeEqual` 防时序攻击）
@@ -22,7 +22,7 @@
   - 前端 `web/dist` 构建后由 Fastify **同源托管**（`/*` 静态路由 + SPA 回退），部署只需一个端口（默认 3001），无跨域
   - 提供 `Dockerfile` + `docker-compose.yml` + `DEPLOY.md`（Docker / VPS / Railway / Render），含 Vercel 不适用说明（SQLite 有状态，需持久卷）
   - 数据持久化在 `data/app.db`，容器/主机挂卷即可重启不丢
-- 用例模型：`name / method / url / headers / body / expected(status, contains, maxTimeMs, jsonChecks)`
+- 用例模型：`name / method / url / headers / body / bodyType(json|raw|form-data) / files / expected(status, contains, maxTimeMs, jsonChecks)`
 - 执行引擎 `runCase`：发请求 → 按 expected 断言 → 返回 `{pass, status, durationMs, detail, bodyPreview}`
 - **JSONPath 断言（自写求值器，未用第三方库）**：`expected.jsonChecks` = `[{path, op, value}]`，支持 `$.a.b / $.arr[0] / $.arr[*] / .length` 路径 + `eq / ne / gt / gte / lt / lte / contains / exists` 操作符
 - **定时任务（node-cron）**：用例 + cron 表达式 → 到点自动执行并落执行记录；可启停/删除，重启自动恢复
@@ -33,6 +33,7 @@
   - `/*`（生产）托管前端 `web/dist`（仅构建后存在时注册，SPA 路由回退 index.html）
   - `GET /api/cases`、`POST /api/cases`、`GET /api/cases/:id`、`PUT /api/cases/:id`、`DELETE /api/cases/:id`
   - `POST /api/cases/:id/run`（单条运行）、`POST /api/run-all`（全部运行汇总）
+  - `GET /api/meta/body-options`（请求体类型 + 内置夹具清单，M8）
   - `GET /api/schedules`、`POST /api/schedules`、`PUT /api/schedules/:id`、`DELETE /api/schedules/:id`
   - `GET /api/runs?caseId=&limit=`、`GET /api/reports/summary`
 - 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/执行明细/**定时任务管理**）
@@ -57,19 +58,19 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 70 例全绿（全离线）
+npm test           # vitest 85 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
 测穿配套的被测系统（闭环）：
 
 ```bash
-npm run seed:oa    # 写入 36 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面）
+npm run seed:oa    # 写入 44 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面 + 附件全生命周期）
 npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代码起进程）
                    # 等价于 POST /api/run-all {"prefix":"OA-"}；任一条失败即以非 0 退出，可挂 CI
 ```
 
-> ⭐ 这条闭环（含四个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
+> ⭐ 这条闭环（含四个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界 → 已在 M8 补掉**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
 
 ## 鉴权说明（M4）
 
@@ -92,6 +93,28 @@ npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代�
 设计取舍：**变量袋只在内存、不落库**（token 不该进库，也不该跨运行复用 —— 否则会拿过期 token 假装通过）；
 变量缺失**不判失败**，只在 detail 里写明「未赋值变量：{{token}}」，因为请求本身也会失败，两处都报会让人分不清真正原因。
 
+## 请求体类型与文件上传（M8）
+
+做 M7 那轮闭环时撞到一条边界：执行引擎是 `JSON.stringify(body)`，**发不出 `multipart/form-data`** ——
+「上传一个文件」这件事平台根本做不到。M8 把这条边界补在代码里（而不是停在文档里）：
+
+| 能力 | 用法 |
+|---|---|
+| 请求体类型 | 用例加 `bodyType`：`json`（默认）/ `raw`（原样发字符串）/ `form-data` |
+| 文件字段 | `form-data` 时加 `files: [{"name":"file","fixture":"png"}]`，也支持内联 `base64` + 自定义 `filename` / `contentType` |
+| **执行器接管头部** | `form-data` 时 `Content-Type`（带 boundary）与 `Content-Length` 由执行器覆盖 —— 手填的那个会被改掉，boundary 不可能填对 |
+| 内置夹具 | `GET /api/meta/body-options` 返回夹具清单（**唯一事实来源在后端**，前端不硬编码），编辑器里的下拉直接读它 |
+
+设计取舍：
+
+- **multipart 包体手搓，不引第三方库**（`src/multipart.js`）：boundary 生成、CRLF、结尾 `--`、二进制安全、
+  文件名字段的引号转义与换行清洗都是自己写的 —— 与本项目「除 Fastify 系不引库」一致。
+- **夹具内置在代码里**（`src/fixtures.js`，PNG / PDF / 伪装 exe），不让用户传一个文件当夹具：
+  自动化要的是**可重复** —— 每次跑发一模一样的字节，`size == 41` 这种断言才站得住。
+  字节内容刻意与 office-oa 的测试夹具一致。
+- **夹具名写错当场报错**，不静默发一个空文件：那会让人以为「被测系统的上传接口有 bug」。
+- **`files` 也走变量渲染**：文件名可以是 `{{var}}`。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
@@ -103,6 +126,7 @@ npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代�
 | **M5** | 单端口部署（Docker / VPS / Railway / Render）+ 修改密码接口 | ✅ 已完成（70 例） |
 | **M6** | 演示数据打磨（覆盖全断言类型 + 演示定时任务）+ 项目全讲（教学/作品集文档） | ✅ 已完成 |
 | **M7** | **用例链（`{{var}}` + extract + 按创建顺序串链）+ 分组跑 + 测穿 office-oa（36/36，含附件边界面）** | ✅ 已完成（70 例 + OA 36 条） |
+| **M8** | **请求体类型（json / raw / form-data）+ 文件夹具上传**：手搓 multipart（不引库）+ 内置夹具 + 编辑器支持 → 附件全生命周期也进平台（OA 44/44） | ✅ 已完成（85 例 + OA 44 条） |
 
 > 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 > 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
@@ -117,13 +141,16 @@ src/users.js      用户服务：createUser/verifyLogin/initDefaultUser/changePa
 src/cases.js      用例 CRUD（含 updateCase 部分更新 + extract 抽取声明）
 src/vars.js       用例链：{{var}} 模板渲染 + 按 JSONPath 从响应抽变量（M7）
 src/jsonpath.js   自写 JSONPath 求值器（M3 核心之一）
-src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断言 + 变量渲染/抽取）
+src/bodyTypes.js  请求体类型白名单 json / raw / form-data（M8）
+src/multipart.js  手搓 multipart/form-data 包体 + 文件字段解析（boundary / CRLF / 二进制安全，M8）
+src/fixtures.js   内置文件夹具（PNG / PDF / 伪装 exe），字节写进代码保证可重复（M8）
+src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断言 + 变量渲染/抽取 + multipart 组包）
 src/schedules.js  定时任务 CRUD（cron 校验）
 src/scheduler.js  node-cron 调度器（注册/启停/恢复）
 src/reports.js    执行记录查询 + 报告聚合
-seed-oa-suite.mjs office-oa 用例套件（36 条，用例链 + 附件边界面）— npm run seed:oa
+seed-oa-suite.mjs office-oa 用例套件（44 条，用例链 + 附件边界面 + 附件全生命周期）— npm run seed:oa
 run-oa-suite.mjs  一键跑 OA 套件并打印结果 — npm run test:oa
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js  共 70 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js  共 85 例，全离线
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
 web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端同源托管）
   src/auth.js     前端会话状态（token + reactive session）

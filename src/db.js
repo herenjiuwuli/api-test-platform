@@ -71,6 +71,9 @@ function migrate(db) {
   }
   // M4：用例链的「从响应抽变量」声明，形如 [{"name":"token","path":"$.token"}]
   addColumn(`ALTER TABLE test_cases ADD COLUMN extract_json TEXT NOT NULL DEFAULT '[]'`)
+  // M8：请求体类型（json / raw / form-data）+ form-data 的文件字段声明
+  addColumn(`ALTER TABLE test_cases ADD COLUMN body_type TEXT NOT NULL DEFAULT 'json'`)
+  addColumn(`ALTER TABLE test_cases ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'`)
 }
 
 export function closeDb() {

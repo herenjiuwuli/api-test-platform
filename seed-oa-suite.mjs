@@ -8,6 +8,9 @@
 //     这两个码必须分得清，否则「授权先于状态」这条设计就没被真正验证。
 //  3. **断言的是语义，不是现状**：期望值全部来自 OA 的设计（403 是身份问题、409 是时序问题），
 //     不是「跑一遍看它返回什么就写什么」—— 后者只能叫录播，抓不到回归。
+//  4. **附件那一段真发文件（M8）**：执行器支持 bodyType=form-data + 内置夹具后，
+//     「上传→列表→下载回读→魔数拦截→越权→删除」这条附件生命周期是在平台里跑完的，
+//     不再是「平台发不出 multipart，这块交给被测系统自己的测试」。
 //
 // ⚠️ 必须先重置 office-oa 到种子态（`node seed.js --force`），否则账号/流程与断言不匹配。
 // ⚠️ 跑之前 office-oa 必须**是新起进程**。踩过：端口上挂着 M2 之前的旧进程，
@@ -34,6 +37,18 @@ const post = (url, tokenVar, body) => ({
   url: `${BASE}${url}`,
   headers: { 'Content-Type': 'application/json', ...auth(tokenVar) },
   body,
+})
+
+// M8：真发 multipart/form-data（附件上传就是这条）。
+//   注意**不手写 Content-Type** —— boundary 由执行器生成，手填的那个会被它覆盖；
+//   这里只声明 bodyType + files，其余交给执行器（这也是「能力边界补上了」的落点）。
+const upload = (url, tokenVar, files, fields = {}) => ({
+  method: 'POST',
+  url: `${BASE}${url}`,
+  headers: { ...auth(tokenVar) },
+  bodyType: 'form-data',
+  body: fields,
+  files,
 })
 
 const cases = [
@@ -264,11 +279,10 @@ const cases = [
     expected: { status: 401, contains: 'token 已登出' },
   },
 
-  // ── F. 附件的「边界面」：平台执行器只发 JSON，这里覆盖的是**不需要传文件**的那几条分支 ──
-  // 诚实说明：要真发一个 multipart 文件请求，得先扩执行器（它现在只会 JSON.stringify(body)）。
-  //   所以下面断言的是「父资源先判 / 守卫在前 / 可见性」这些**根本不看 body** 的分支；
-  //   真正传文件、嗅探魔数、大小临界、并发上限那些，由 office-oa 自己的 vitest + Playwright 兜。
-  //   写清楚这段边界，比含糊说一句「附件也测了」有用得多。
+  // ── F. 附件的「边界面」：只覆盖**不看 body** 的那几条分支（父资源先判 / 守卫在前 / 可见性）──
+  // 「真正传文件」的几条放在 G 段；G 段依赖 M8 的执行器能力（bodyType=form-data + 内置夹具）。
+  // F 段之所以保留：它验的是**顺序**（授权在状态前、父资源在 body 校验前），
+  //   这些分支用 JSON 请求就能打出来，不依赖 multipart 能力，是执行器之外的那层防线。
   {
     name: `${TAG}30 未登录看附件列表 → 401（守卫在前，连单据存在与否都不谈）`,
     method: 'GET',
@@ -320,6 +334,75 @@ const cases = [
     headers: auth('token_emp'),
     expected: { status: 404, contains: '附件不存在' },
   },
+
+  // ── G. 附件全生命周期（M8：执行器真发 multipart/form-data）────────────────────
+  // 这一段的意义不在「又多了 8 条」，而在于：上一轮 F 段顶上写的是「平台发不出 multipart，
+  //   这是能力边界」。执行器补上之后，那行字变成了 8 条真跑过的断言 ——
+  //   边界是在代码里消掉的，不是在文档里改口的。
+  // 两张靶子：rid2（自己的草稿，可编辑态） / rid（已归档，状态不允许）。
+  {
+    name: `${TAG}37 ★ 真发 multipart 上传 PNG → 201（抽 aid；mime 由服务端按字节判出）`,
+    ...upload('/api/requests/{{rid2}}/attachments', 'token_emp', [{ name: 'file', fixture: 'png' }], {
+      note: '平台链式用例上传的附件',
+    }),
+    expected: {
+      status: 201,
+      jsonChecks: [
+        { path: '$.name', op: 'eq', value: 'fixture.png' },
+        { path: '$.mime', op: 'eq', value: 'image/png' },
+        { path: '$.size', op: 'eq', value: 41 },
+      ],
+    },
+    extract: [{ name: 'aid', path: '$.id' }],
+  },
+  {
+    name: `${TAG}38 ★ 上传后附件列表 total=1（列表和上传认的是同一条记录）`,
+    method: 'GET',
+    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    headers: auth('token_emp'),
+    expected: { status: 200, jsonChecks: [{ path: '$.total', op: 'eq', value: 1 }] },
+  },
+  {
+    // 二进制回读：落盘名是随机 UUID、下载接口按单据可见性鉴权，所以这一条同时证明
+    //   ① 字节真的落盘又原样回来 ② 下载不是「URL 猜不到就等于安全」
+    name: `${TAG}39 ★ 下载刚上传的附件 → 200 且字节回读一致（contains 夹具正文）`,
+    method: 'GET',
+    url: `${BASE}/api/attachments/{{aid}}`,
+    headers: auth('token_emp'),
+    expected: { status: 200, contains: 'iVBORw0KGgo-fake-png-body-content' },
+  },
+  {
+    name: `${TAG}40 ★ 上传伪装成 PNG 的可执行文件（MZ 头）→ 400（只认字节不认名字）`,
+    ...upload('/api/requests/{{rid2}}/attachments', 'token_emp', [{ name: 'file', fixture: 'fake-exe' }]),
+    expected: { status: 400, contains: '不支持的文件类型' },
+  },
+  {
+    // ★ 与 42 成对：同一张已归档单据，申请人本人传 → 409（有身份，是状态不允许）
+    name: `${TAG}41 ★ 给已归档单据传附件（本人）→ 409（只有可编辑态能增删）`,
+    ...upload('/api/requests/{{rid}}/attachments', 'token_emp', [{ name: 'file', fixture: 'png' }]),
+    expected: { status: 409, contains: '不允许增删附件' },
+  },
+  {
+    // ★★ 与 41 成对：同一张单据、同一个动作，身份不对 → 必须 403 而不是 409。
+    //   顺序反了（先判状态）就等于让人靠 409 探测出「这张单已归档」—— 那是信息泄漏。
+    name: `${TAG}42 ★★ 给已归档单据传附件（非申请人）→ 403（不是 409，授权先于状态）`,
+    ...upload('/api/requests/{{rid}}/attachments', 'token_other_mgr', [{ name: 'file', fixture: 'png' }]),
+    expected: { status: 403, contains: '只有申请人本人' },
+  },
+  {
+    name: `${TAG}43 ★ 删掉自己刚上传的附件 → 200`,
+    method: 'DELETE',
+    url: `${BASE}/api/attachments/{{aid}}`,
+    headers: auth('token_emp'),
+    expected: { status: 200, jsonChecks: [{ path: '$.ok', op: 'eq', value: true }] },
+  },
+  {
+    name: `${TAG}44 ★ 删除后列表回到 0（记录和落盘文件一起清）`,
+    method: 'GET',
+    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    headers: auth('token_emp'),
+    expected: { status: 200, jsonChecks: [{ path: '$.total', op: 'eq', value: 0 }] },
+  },
 ]
 
 // —— 幂等写入：先清掉上一版 OA- 用例（连带定时任务），再按顺序插入 ——
@@ -332,4 +415,4 @@ for (const c of cases) createCase(c)
 console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条），被测地址 ${BASE}`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
-console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}33 附件可见性`)
+console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态`)
