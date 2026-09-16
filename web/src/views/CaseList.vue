@@ -2,6 +2,7 @@
   <div>
     <div class="toolbar">
       <el-button type="primary" @click="$router.push('/cases/new')">新建用例</el-button>
+      <el-button @click="aiVisible = true">AI 生成用例</el-button>
       <el-button :loading="runAllLoading" @click="onRunAll">全部运行</el-button>
       <el-button @click="load">刷新</el-button>
     </div>
@@ -78,6 +79,9 @@
         </el-table>
       </template>
     </el-dialog>
+
+    <!-- AI 生成用例 -->
+    <AiGenerateDialog v-model="aiVisible" @saved="load" />
   </div>
 </template>
 
@@ -85,6 +89,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
+import AiGenerateDialog from '../components/AiGenerateDialog.vue'
 
 const cases = ref([])
 const loading = ref(false)
@@ -94,6 +99,7 @@ const resultVisible = ref(false)
 const lastResult = ref(null)
 const allVisible = ref(false)
 const allResult = ref(null)
+const aiVisible = ref(false)
 
 function methodTag(m) {
   return { GET: 'success', POST: 'primary', PUT: 'warning', DELETE: 'danger' }[m] || 'info'

@@ -45,4 +45,7 @@ export const api = {
   createSchedule: (payload) => http.post('/api/schedules', payload).then((r) => r.data),
   updateSchedule: (id, payload) => http.put(`/api/schedules/${id}`, payload).then((r) => r.data),
   deleteSchedule: (id) => http.delete(`/api/schedules/${id}`).then((r) => r.data),
+  // AI 生成用例（AI 响应较慢，单独放宽超时）
+  aiGenerateCases: (payload) =>
+    http.post('/api/ai/generate-cases', payload, { timeout: 120000 }).then((r) => r.data),
 }
