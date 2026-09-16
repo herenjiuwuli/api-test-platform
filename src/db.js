@@ -55,7 +55,22 @@ export function getDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `)
+  migrate(_db)
   return _db
+}
+
+// 幂等迁移：老库（已存在）不会走上面的 CREATE TABLE IF NOT EXISTS，所以新列要单独补。
+// 用 try/catch 兜「列已存在」，比先查 PRAGMA 再决定更少一次往返，也不依赖 pragma 的返回形状。
+function migrate(db) {
+  const addColumn = (sql) => {
+    try {
+      db.exec(sql)
+    } catch (e) {
+      if (!/duplicate column name/i.test(e.message)) throw e
+    }
+  }
+  // M4：用例链的「从响应抽变量」声明，形如 [{"name":"token","path":"$.token"}]
+  addColumn(`ALTER TABLE test_cases ADD COLUMN extract_json TEXT NOT NULL DEFAULT '[]'`)
 }
 
 export function closeDb() {

@@ -95,7 +95,25 @@ describe('runner JSONPath 断言（M3）', () => {
     })
     expect(r.pass).toBe(false)
     expect(r.detail.join()).toContain('$.code')
-    expect(r.detail.join()).toContain('实际 0')
+    expect(r.detail.join()).toContain('首个 0')
+  })
+
+  it('⭐ 多匹配时 contains = 任一命中（数组里包含某元素）', async () => {
+    // 用真系统测出来的语义坑：$.permissions[*] contains 'user:read' 曾因「只看首个匹配」而假失败
+    const hit = await runCase({
+      method: 'GET',
+      url: `${targetUrl}/json`,
+      expected: { status: 200, jsonChecks: [{ path: '$.data.list[*].tags[*]', op: 'contains', value: 'b' }] },
+    })
+    expect(hit.pass).toBe(true)
+
+    const miss = await runCase({
+      method: 'GET',
+      url: `${targetUrl}/json`,
+      expected: { jsonChecks: [{ path: '$.data.list[*].tags[*]', op: 'contains', value: 'zzz' }] },
+    })
+    expect(miss.pass).toBe(false)
+    expect(miss.detail.join()).toContain('匹配 2 个')
   })
 
   it('响应非 JSON 时 jsonChecks 失败', async () => {

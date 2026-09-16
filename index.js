@@ -3,11 +3,11 @@
 //   GET  /health                  健康检查
 //   GET  /api/cases               列出全部用例
 //   GET  /api/cases/:id           查询单个用例
-//   POST /api/cases               新建用例 {name,method,url,headers,body,expected}
+//   POST /api/cases               新建用例 {name,method,url,headers,body,expected,extract}
 //   PUT  /api/cases/:id           更新用例（部分更新）
 //   DELETE /api/cases/:id         删除用例
-//   POST /api/cases/:id/run       执行单个用例（持久化结果）
-//   POST /api/run-all             执行全部用例（持久化 + 返回汇总）
+//   POST /api/cases/:id/run       执行单个用例（持久化结果；不参与用例链）
+//   POST /api/run-all             执行全部用例（按创建顺序组成用例链，共享变量袋，持久化 + 返回汇总）
 //   GET  /api/schedules           定时任务列表
 //   POST /api/schedules           新建定时任务 {caseId, cron}
 //   PUT  /api/schedules/:id       更新定时任务（cron/enabled）
@@ -19,6 +19,8 @@
 //   GET  /api/auth/me             当前用户
 //   POST /api/auth/change-password 修改密码（需鉴权）
 //   /*（生产）                     托管前端 web/dist（仅构建后存在时注册）
+// 先加载 .env（不覆盖已有环境变量），再导入其他模块——auth.js 等在 import 时就读 process.env
+import 'dotenv/config'
 import Fastify from 'fastify'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -29,6 +31,7 @@ import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
 import { signToken, verifyToken } from './src/auth.js'
 import { createUser, verifyLogin, initDefaultUser, changePassword } from './src/users.js'
+import { generateCases } from './src/aiCases.js'
 
 // 鉴权守卫：除健康检查、登录/注册外，所有 /api 路由必须带有效 Bearer token。
 // 注意：静态资源与前端的 SPA 页面（/、/reports、/cases/... 等非 /api 路径）一律公开，
@@ -130,14 +133,27 @@ export function buildApp() {
     return runCase(c)
   })
 
-  app.post('/api/run-all', async () => {
-    const cases = listCases()
+  app.post('/api/run-all', async (req) => {
+    // 用例链按「创建顺序」跑（id 升序）：登录抽 token → 后面带 token 的用例才能用上。
+    // listCases() 是「新的在前」（给界面看的），这里必须翻过来，否则链会被打乱。
+    // 可选 body {prefix:'OA-'} 只跑一组用例（用例分组的最小实现）：
+    //   一个平台里常常挂着多个被测系统的用例，跑全部会把别人的失败算进来。
+    const { prefix, ids } = req.body || {}
+    let cases = listCases()
+      .slice()
+      .sort((a, b) => a.id - b.id)
+    if (prefix) cases = cases.filter((c) => String(c.name).startsWith(prefix))
+    if (Array.isArray(ids) && ids.length) {
+      const want = new Set(ids.map(Number))
+      cases = cases.filter((c) => want.has(c.id))
+    }
     const results = await runAll(cases)
     const passed = results.filter((r) => r.pass).length
     return {
       total: cases.length,
       passed,
       failed: cases.length - passed,
+      filter: prefix || (ids?.length ? 'ids' : null),
       results,
     }
   })
@@ -180,6 +196,20 @@ export function buildApp() {
   )
 
   app.get('/api/reports/summary', async () => getReportSummary())
+
+  // —— AI 生成用例 ——
+  app.post('/api/ai/generate-cases', async (req, reply) => {
+    const { method, url, headers, body, description } = req.body || {}
+    if (!url || !String(url).trim()) return reply.code(400).send({ error: '接口 url 必填' })
+    try {
+      const cases = await generateCases({ method, url, headers, body, description })
+      return { cases }
+    } catch (e) {
+      // DeepSeek 失败 / JSON 解析失败统一给友好提示，细节留在服务端日志
+      console.error('[ai/generate-cases]', e.message)
+      return reply.code(502).send({ error: 'AI 生成失败，请稍后重试' })
+    }
+  })
 
   // —— 生产静态托管（M5）——
   // 构建前端后由后端同源托管，实现单端口部署（Docker / 云服务器 / PM2）。

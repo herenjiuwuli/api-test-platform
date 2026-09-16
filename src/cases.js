@@ -1,5 +1,6 @@
 // 用例 CRUD（基于 db.js）。用例 = 一次 HTTP 测试的定义。
-// 字段：name / method / url / headers / body / expected(status, contains, maxTimeMs)
+// 字段：name / method / url / headers / body / expected(status, contains, maxTimeMs, jsonChecks)
+//      / extract（M4：从本用例响应里按 JSONPath 抽变量，供链上后面的用例用）
 import { getDb } from './db.js'
 
 export function createCase(input = {}) {
@@ -8,8 +9,8 @@ export function createCase(input = {}) {
   if (!name) throw new Error('用例 name 必填')
   if (!input.url) throw new Error('用例 url 必填')
   const stmt = db.prepare(
-    `INSERT INTO test_cases (name, method, url, headers_json, body_json, expected_json)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO test_cases (name, method, url, headers_json, body_json, expected_json, extract_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
   const info = stmt.run(
     name,
@@ -18,6 +19,7 @@ export function createCase(input = {}) {
     JSON.stringify(input.headers || {}),
     input.body !== undefined ? JSON.stringify(input.body) : '',
     JSON.stringify(input.expected || {}),
+    JSON.stringify(normalizeExtract(input.extract)),
   )
   return getCase(info.lastInsertRowid)
 }
@@ -42,12 +44,13 @@ export function updateCase(id, input = {}) {
     headers: input.headers !== undefined ? input.headers : existing.headers,
     body: input.body !== undefined ? input.body : existing.body,
     expected: input.expected !== undefined ? input.expected : existing.expected,
+    extract: input.extract !== undefined ? normalizeExtract(input.extract) : existing.extract,
   }
   if (!merged.name) throw new Error('用例 name 必填')
   if (!merged.url) throw new Error('用例 url 必填')
   getDb()
     .prepare(
-      `UPDATE test_cases SET name=?, method=?, url=?, headers_json=?, body_json=?, expected_json=? WHERE id=?`,
+      `UPDATE test_cases SET name=?, method=?, url=?, headers_json=?, body_json=?, expected_json=?, extract_json=? WHERE id=?`,
     )
     .run(
       merged.name,
@@ -56,6 +59,7 @@ export function updateCase(id, input = {}) {
       JSON.stringify(merged.headers || {}),
       merged.body !== undefined ? JSON.stringify(merged.body) : '',
       JSON.stringify(merged.expected || {}),
+      JSON.stringify(normalizeExtract(merged.extract)),
       id,
     )
   return getCase(id)
@@ -84,8 +88,17 @@ function normalize(row) {
     headers: safeParse(row.headers_json, {}),
     body: row.body_json ? safeParse(row.body_json, null) : undefined,
     expected: safeParse(row.expected_json, {}),
+    extract: safeParse(row.extract_json, []),
     createdAt: row.created_at,
   }
+}
+
+// extract 只留合法项（有 name 有 path），挡住手抖写错的结构进库
+function normalizeExtract(extract) {
+  if (!Array.isArray(extract)) return []
+  return extract
+    .filter((e) => e && typeof e.name === 'string' && e.name.trim() && typeof e.path === 'string' && e.path.trim())
+    .map((e) => ({ name: e.name.trim(), path: e.path.trim() }))
 }
 
 function safeParse(s, fallback) {
