@@ -14,6 +14,11 @@
 //   DELETE /api/schedules/:id     删除定时任务
 //   GET  /api/runs                执行记录（?caseId=&limit=）
 //   GET  /api/reports/summary     报告汇总
+//   GET  /api/environments        环境变量集列表（含当前环境 activeId）
+//   POST /api/environments        新建环境 {name,baseUrl,headers,vars}
+//   PUT  /api/environments/active 切换当前环境 {id}（id 传 null = 取消当前环境）
+//   PUT  /api/environments/:id    更新环境（部分更新）
+//   DELETE /api/environments/:id  删除环境（删的是当前环境则当前环境清空）
 //   POST /api/auth/register       注册（免鉴权）
 //   POST /api/auth/login          登录（免鉴权）
 //   GET  /api/auth/me             当前用户
@@ -27,6 +32,15 @@ import fs from 'node:fs'
 import { createCase, listCases, getCase, updateCase, deleteCase } from './src/cases.js'
 import { BODY_TYPES } from './src/bodyTypes.js'
 import { FIXTURES, fixtureNames } from './src/fixtures.js'
+import {
+  createEnvironment,
+  deleteEnvironment,
+  getActiveId,
+  getEnvironment,
+  listEnvironments,
+  setActiveEnvironment,
+  updateEnvironment,
+} from './src/environments.js'
 import { runCase, runAll } from './src/runner.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
@@ -170,6 +184,48 @@ export function buildApp() {
     }
   })
 
+  // —— 环境变量集（M9）——
+  // 「这次打的是哪个环境」必须是**一处可查、一处可切**的状态：
+  //   它既影响手动运行，也影响 run-all 和定时任务（三者都走 runner，环境在那里统一生效）。
+  app.get('/api/environments', async () => ({
+    items: listEnvironments(),
+    activeId: getActiveId(),
+  }))
+
+  app.post('/api/environments', async (req, reply) => {
+    try {
+      return reply.code(201).send(createEnvironment(req.body || {}))
+    } catch (e) {
+      return reply.code(400).send({ error: e.message })
+    }
+  })
+
+  // 切换当前环境。静态段 /active 必须在 /:id 之前声明（可读性，也免得靠框架的优先级规则过活）。
+  app.put('/api/environments/active', async (req, reply) => {
+    const { id } = req.body || {}
+    if (id !== null && id !== undefined && !getEnvironment(id)) {
+      return reply.code(404).send({ error: '环境不存在' })
+    }
+    const env = setActiveEnvironment(id === undefined ? null : id)
+    return { activeId: env ? env.id : null, active: env }
+  })
+
+  app.put('/api/environments/:id', async (req, reply) => {
+    try {
+      const updated = updateEnvironment(Number(req.params.id), req.body || {})
+      if (!updated) return reply.code(404).send({ error: '环境不存在' })
+      return updated
+    } catch (e) {
+      return reply.code(400).send({ error: e.message })
+    }
+  })
+
+  app.delete('/api/environments/:id', async (req, reply) => {
+    const r = deleteEnvironment(Number(req.params.id))
+    if (!r) return reply.code(404).send({ error: '环境不存在' })
+    return r
+  })
+
   // —— 定时任务（M3）——
   app.get('/api/schedules', async () => listSchedules())
 
@@ -274,7 +330,7 @@ if (isDirectRun) {
     initDefaultUser()
     // 直接运行时启动定时调度器（测试里不启动，保证隔离）
     startScheduler()
-    console.log(`✅ API 测试平台 M5 已启动：http://localhost:${port}（定时任务已恢复）`)
+    console.log(`✅ API 测试平台 M9 已启动：http://localhost:${port}（定时任务已恢复）`)
   }).catch((e) => {
     console.error('启动失败：', e.message)
     process.exit(1)

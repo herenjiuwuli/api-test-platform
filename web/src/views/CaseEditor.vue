@@ -19,6 +19,10 @@
           </el-select>
           <el-input v-model="form.url" placeholder="https://api.example.com/path" />
         </div>
+        <div class="field-hint">
+          建议写成 <code>{{ BASE_TAG }}/api/xxx</code> —— 地址由「当前环境」提供，换环境不用改用例；
+          链上抽到的变量同样可以写在这里（如 <code>{{ BASE_TAG }}/items/{{ VAR_TAG }}</code>）。
+        </div>
       </el-form-item>
 
       <el-form-item label="请求头">
@@ -101,6 +105,11 @@ import { api } from '../api'
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => Number(route.params.id))
+
+// 模板里要**原样显示** {{base}} 这类占位符，但不能直接写 —— Vue 会把 `{{` 当插值起点解析。
+// 拆成一个常量再插值，是目前最省事又不破坏可读性的写法。
+const BASE_TAG = '{{base}}'
+const VAR_TAG = '{{id}}'
 const isEdit = computed(() => !!route.params.id)
 
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -295,6 +304,8 @@ watch(
 .editor-card { max-width: 760px; margin: 0 auto; }
 .editor-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
 .request-row { display: flex; gap: 10px; width: 100%; }
+.field-hint { font-size: 12px; color: #909399; margin: 6px 0 0; line-height: 1.6; }
+.field-hint code { background: #f2f3f5; padding: 0 4px; border-radius: 3px; }
 .kv-row { display: flex; gap: 10px; width: 100%; margin-bottom: 8px; align-items: center; }
 .json-hint { font-size: 12px; color: #909399; margin: 6px 0 0; line-height: 1.6; }
 </style>

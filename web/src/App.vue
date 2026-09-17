@@ -6,9 +6,15 @@
       <div class="brand">
         <span class="brand-dot">⚡</span>
         <span class="brand-name">API 自动化测试平台</span>
-        <span class="brand-sub">M4 · 鉴权 + JSONPath 断言 + 定时任务 + 报告</span>
+        <span class="brand-sub">M9 · 用例链 + 文件上传 + 环境变量集</span>
       </div>
       <div class="nav">
+        <el-tag v-if="activeEnvName" type="success" effect="plain" size="small" class="env-tag" @click="$router.push('/environments')">
+          🌐 {{ activeEnvName }}
+        </el-tag>
+        <el-tag v-else type="warning" effect="plain" size="small" class="env-tag" @click="$router.push('/environments')">
+          🌐 未选环境
+        </el-tag>
         <el-dropdown v-if="session.username" trigger="click" @command="onCommand">
           <span class="who">👤 {{ session.username }} <span class="caret">▾</span></span>
           <template #dropdown>
@@ -20,6 +26,7 @@
         </el-dropdown>
         <el-button text :type="isList ? 'primary' : ''" @click="$router.push('/')">用例列表</el-button>
         <el-button text :type="isReports ? 'primary' : ''" @click="$router.push('/reports')">报告 / 定时</el-button>
+        <el-button text :type="isEnvs ? 'primary' : ''" @click="$router.push('/environments')">环境</el-button>
         <el-button type="primary" @click="$router.push('/cases/new')">+ 新建用例</el-button>
         <el-button v-if="!session.username" text type="danger" @click="logout">退出</el-button>
       </div>
@@ -49,17 +56,24 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { session, clearSession } from './auth.js'
 import { api } from './api.js'
+import { envState, refreshEnvironments } from './env.js'
 
 const route = useRoute()
 const router = useRouter()
 const isLogin = computed(() => route.path === '/login')
 const isList = computed(() => route.path === '/')
 const isReports = computed(() => route.path === '/reports')
+const isEnvs = computed(() => route.path === '/environments')
+
+// 当前环境徽标：让「这次打的是哪个环境」永远在视野里 ——
+// 跑用例之前先看一眼这块标签，比事后翻报告里那条 URL 有用得多。
+// 状态来自共享的 envState：在 Environments 页里切环境时它会同步变，不需要靠路由变化来对齐。
+const activeEnvName = computed(() => envState.activeName)
 
 // 修改密码弹窗状态
 const pwdVisible = ref(false)
@@ -76,6 +90,13 @@ onMounted(async () => {
       clearSession()
     }
   }
+  if (session.token) await refreshEnvironments()
+})
+
+// 兜底再对齐一次（例如别处改了库、或页面被直接从外部带 hash 打开）：
+// 环境是全局状态，多对齐一次的成本是一次很小的 GET，比"徽标撒谎"便宜得多。
+watch(() => route.path, () => {
+  if (session.token) refreshEnvironments()
 })
 
 function logout() {
@@ -126,6 +147,7 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, "Segoe UI", "
 .brand-name { font-size: 16px; font-weight: 600; color: #303133; }
 .brand-sub { font-size: 12px; color: #909399; }
 .nav { display: flex; align-items: center; gap: 4px; }
+.env-tag { cursor: pointer; margin-right: 8px; }
 .who { font-size: 13px; color: #606266; margin-right: 6px; cursor: pointer; user-select: none; }
 .caret { font-size: 11px; opacity: 0.7; }
 .app-main { padding: 20px; max-width: 1200px; margin: 0 auto; width: 100%; }

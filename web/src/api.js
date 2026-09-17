@@ -40,6 +40,12 @@ export const api = {
   deleteCase: (id) => http.delete(`/api/cases/${id}`).then((r) => r.data),
   runCase: (id) => http.post(`/api/cases/${id}/run`).then((r) => r.data),
   runAll: () => http.post('/api/run-all').then((r) => r.data),
+  // M9：环境变量集
+  listEnvironments: () => http.get('/api/environments').then((r) => r.data),
+  createEnvironment: (payload) => http.post('/api/environments', payload).then((r) => r.data),
+  updateEnvironment: (id, payload) => http.put(`/api/environments/${id}`, payload).then((r) => r.data),
+  deleteEnvironment: (id) => http.delete(`/api/environments/${id}`).then((r) => r.data),
+  setActiveEnvironment: (id) => http.put('/api/environments/active', { id }).then((r) => r.data),
   // M3：定时任务 + 报告
   listRuns: (params) => http.get('/api/runs', { params }).then((r) => r.data),
   getReportSummary: () => http.get('/api/reports/summary').then((r) => r.data),

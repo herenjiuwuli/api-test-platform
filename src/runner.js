@@ -4,8 +4,11 @@
 // M4：支持用例链 —— url/headers/body 里的 {{var}} 会先用变量袋渲染，
 //     响应回来后按 def.extract 抽值**写回同一个变量袋**，供链上下一个用例使用。
 // M8：支持请求体类型 —— json（默认）/ raw（原样发文本）/ form-data（手搓 multipart，可带内置夹具文件）。
+// M9：支持环境变量集 —— 当前环境提供 `{{base}}` 与自定义变量（**基线**，不覆盖链上抽到的值），
+//     并提供默认请求头（用例里手写的同名头优先）。三条运行路径（单跑 / run-all / 定时）都走这里，所以只用改一处。
 import { saveRun } from './cases.js'
 import { normalizeBodyType } from './bodyTypes.js'
+import { getActiveEnvironment, mergeHeaders, mergeVarBag } from './environments.js'
 import { jsonPathGet } from './jsonpath.js'
 import { buildMultipart, resolveFiles, toFields, unknownFixtureMessage } from './multipart.js'
 import { applyExtract, createVarBag, missingVarNote, renderTemplate } from './vars.js'
@@ -16,23 +19,34 @@ import { applyExtract, createVarBag, missingVarNote, renderTemplate } from './va
  *          bodyType?:'json'|'raw'|'form-data',files?:Array<{name:string,fixture?:string,base64?:string,filename?:string,contentType?:string}>,
  *          expected?:{status?:number,contains?:string,maxTimeMs?:number,jsonChecks?:Array<{path:string,op:string,value?:any}>},
  *          extract?:Array<{name:string,path:string}>}} def
- * @param {{persist?:boolean,vars?:Record<string,string>}} opts persist=true 时把结果写 runs 表；
- *        vars 是**共享变量袋**（run-all 会一直传同一个，单跑不传则用临时空袋）
+ * @param {{persist?:boolean,vars?:Record<string,string>,env?:object|null}} opts persist=true 时把结果写 runs 表；
+ *        vars 是**共享变量袋**（run-all 会一直传同一个，单跑不传则用临时空袋）；
+ *        env 不传 = 用当前环境；传 null = 显式不用环境（测试用）
  * jsonChecks op 支持：eq / ne / gt / gte / lt / lte / contains / exists
  * 多匹配（[*]）语义：contains = 任一命中；exists = 有无匹配；其余按首个匹配值断言。
  */
-export async function runCase(def, { persist = true, vars } = {}) {
+export async function runCase(def, { persist = true, vars, env } = {}) {
   const started = performance.now()
-  const bag = vars || {}
+  const bag = vars || createVarBag()
+  // 环境变量灌成**基线**：只填还没赋值的键，别盖掉链上前面用例 extract 出来的值
+  const activeEnv = env !== undefined ? env : getActiveEnvironment()
+  mergeVarBag(bag, activeEnv)
+  // 「谁没赋值」必须在**发请求之前**算出来并留好 —— 因为它最常导致的后果就是请求本身发不出去
+  // （{{base}} 没赋值 → url 变成 "/whoami" → fetch 直接抛 "Failed to parse URL"）。
+  // 早期只把它塞进成功分支的 detail，于是 catch 分支只剩一句 fetch 的原始报错，
+  // 恰好把最有用的线索弄丢了（用真环境打用例时踩到的）。
+  let missingNote = null
   try {
     // ① 先渲染模板：把 {{token}} 之类的占位换成变量袋里的实际值（文件名里也允许写变量）
     const url = renderTemplate(def.url, bag)
-    const headers = renderTemplate(def.headers || {}, bag)
+    // 请求头：环境头是默认值，用例里手写的同名头优先（大小写不敏感）
+    const headers = renderTemplate(mergeHeaders(activeEnv ? activeEnv.headers : {}, def.headers || {}), bag)
     const body = def.body !== undefined ? renderTemplate(def.body, bag) : undefined
     const files = renderTemplate(def.files || [], bag)
     const missing = [
       ...new Set([...url.missing, ...headers.missing, ...(body ? body.missing : []), ...files.missing]),
     ]
+    missingNote = missingVarNote(missing)
 
     // ② 按请求体类型组装真正发出去的东西（form-data 会接管 Content-Type / Content-Length）
     const req = buildRequest({ def, headers: headers.value, body, files })
@@ -50,7 +64,7 @@ export async function runCase(def, { persist = true, vars } = {}) {
     let pass = true
 
     // 变量没赋值不判失败（请求本身也会失败），但必须写明来源，否则排障时容易误判成被测系统的问题
-    const note = missingVarNote(missing)
+    const note = missingNote
     if (note) detail.push(note)
 
     if (exp.status !== undefined && status !== exp.status) {
@@ -107,8 +121,10 @@ export async function runCase(def, { persist = true, vars } = {}) {
     return result
   } catch (e) {
     const durationMs = Math.round(performance.now() - started)
-    const result = { pass: false, status: 0, durationMs, detail: [e.message], error: true }
-    if (persist) saveRun({ caseId: def.id, pass: false, status: 0, durationMs, detail: [e.message] })
+    // 把「谁没赋值」放在最前面：读报告的人应该先看到「是变量缺了」，再看到 fetch 的原始报错
+    const detail = missingNote ? [missingNote, e.message] : [e.message]
+    const result = { pass: false, status: 0, durationMs, detail, error: true }
+    if (persist) saveRun({ caseId: def.id, pass: false, status: 0, durationMs, detail })
     return result
   }
 }

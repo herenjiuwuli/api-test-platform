@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import CaseList from './views/CaseList.vue'
 import CaseEditor from './views/CaseEditor.vue'
 import Reports from './views/Reports.vue'
+import Environments from './views/Environments.vue'
 import Login from './views/Login.vue'
 
 const router = createRouter({
@@ -12,6 +13,7 @@ const router = createRouter({
     { path: '/cases/new', name: 'new', component: CaseEditor },
     { path: '/cases/:id/edit', name: 'edit', component: CaseEditor },
     { path: '/reports', name: 'reports', component: Reports },
+    { path: '/environments', name: 'environments', component: Environments },
   ],
 })
 

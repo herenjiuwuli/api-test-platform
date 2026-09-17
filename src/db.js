@@ -1,5 +1,8 @@
 // SQLite 封装（Node 22 内置 node:sqlite，零原生依赖）。
-// M1 仅用两张表：test_cases（用例定义）、runs（执行记录）。
+// 表：test_cases（用例）/ runs（执行记录）/ schedules（定时任务）/ users（账号）
+//     + environments（环境变量集，M9）/ settings（全局单行配置，存「当前环境」）
+// 新表一律写成 CREATE TABLE IF NOT EXISTS 放在下面这段 exec 里：它对「已存在的老库」同样生效，
+// 所以加表不需要额外的迁移分支（加**列**才需要，见 migrate()）。
 // 路径可由 DB_PATH 覆盖（测试用 :memory:），默认 data/app.db。
 import { DatabaseSync } from 'node:sqlite'
 import path from 'node:path'
@@ -53,6 +56,21 @@ export function getDb() {
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS environments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      base_url TEXT NOT NULL,
+      headers_json TEXT NOT NULL DEFAULT '{}',
+      vars_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    -- 全局单行配置（目前只放「当前环境」）。
+    -- 只有一个全局环境这件事，放在一行 KV 里比在 environments 上加 is_active 列更安全：
+    -- 后者迟早会出现「两行都是 active」这种没法自证的状态。
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT ''
     );
   `)
   migrate(_db)

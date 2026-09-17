@@ -19,22 +19,26 @@
 // 运行：npm run seed:oa
 import { getDb } from './src/db.js'
 import { createCase } from './src/cases.js'
+import { createEnvironment, listEnvironments, setActiveEnvironment, updateEnvironment } from './src/environments.js'
 
+// 被测地址现在只活在**一处**：下面这个环境（M9）。
+// 用例里一律写 {{base}}，所以「换一个被测环境」= 换这个环境对象，不用重写 44 条 URL。
 const BASE = process.env.OA_BASE || 'http://127.0.0.1:3200'
+const ENV_NAME = process.env.OA_ENV_NAME || 'office-oa（本地）'
 const PWD = process.env.OA_PASSWORD || 'oa123456'
 const TAG = 'OA-' // 用例名前缀，也是「只跑这一组」的分组标识
 
 const json = (o) => JSON.stringify(o)
 const login = (username) => ({
   method: 'POST',
-  url: `${BASE}/api/auth/login`,
+  url: `{{base}}/api/auth/login`,
   headers: { 'Content-Type': 'application/json' },
   body: { username, password: PWD },
 })
 const auth = (tokenVar) => ({ Authorization: `Bearer {{${tokenVar}}}` })
 const post = (url, tokenVar, body) => ({
   method: 'POST',
-  url: `${BASE}${url}`,
+  url: `{{base}}${url}`,
   headers: { 'Content-Type': 'application/json', ...auth(tokenVar) },
   body,
 })
@@ -44,7 +48,7 @@ const post = (url, tokenVar, body) => ({
 //   这里只声明 bodyType + files，其余交给执行器（这也是「能力边界补上了」的落点）。
 const upload = (url, tokenVar, files, fields = {}) => ({
   method: 'POST',
-  url: `${BASE}${url}`,
+  url: `{{base}}${url}`,
   headers: { ...auth(tokenVar) },
   bodyType: 'form-data',
   body: fields,
@@ -56,19 +60,19 @@ const cases = [
   {
     name: `${TAG}01 健康检查`,
     method: 'GET',
-    url: `${BASE}/health`,
+    url: `{{base}}/health`,
     expected: { status: 200, contains: 'office-oa', maxTimeMs: 1000, jsonChecks: [{ path: '$.ok', op: 'eq', value: true }] },
   },
   {
     name: `${TAG}02 未登录访问员工列表 → 401`,
     method: 'GET',
-    url: `${BASE}/api/users`,
+    url: `{{base}}/api/users`,
     expected: { status: 401, contains: '未登录或缺少 token' },
   },
   {
     name: `${TAG}03 伪造 token 访问 → 401`,
     method: 'GET',
-    url: `${BASE}/api/users`,
+    url: `{{base}}/api/users`,
     headers: { Authorization: 'Bearer fake.payload.signature' },
     expected: { status: 401, contains: 'token 无效或已过期' },
   },
@@ -76,7 +80,7 @@ const cases = [
     // 守卫在路由之前生效：未登录时连「这个接口存不存在」都不告诉你
     name: `${TAG}04 未登录访问不存在的接口 → 401（不泄漏接口是否存在）`,
     method: 'GET',
-    url: `${BASE}/api/not-exist-endpoint`,
+    url: `{{base}}/api/not-exist-endpoint`,
     expected: { status: 401, contains: '未登录或缺少 token' },
   },
 
@@ -90,7 +94,7 @@ const cases = [
   {
     name: `${TAG}06 密码错误 → 401（且不区分用户名/密码）`,
     method: 'POST',
-    url: `${BASE}/api/auth/login`,
+    url: `{{base}}/api/auth/login`,
     headers: { 'Content-Type': 'application/json' },
     body: { username: 'admin', password: 'definitely-wrong' },
     expected: { status: 401, contains: '用户名或密码错误' },
@@ -98,7 +102,7 @@ const cases = [
   {
     name: `${TAG}07 缺字段登录 → 400`,
     method: 'POST',
-    url: `${BASE}/api/auth/login`,
+    url: `{{base}}/api/auth/login`,
     headers: { 'Content-Type': 'application/json' },
     body: {},
     expected: { status: 400, contains: '用户名和密码必填' },
@@ -106,7 +110,7 @@ const cases = [
   {
     name: `${TAG}08 带 token 读自己的上下文`,
     method: 'GET',
-    url: `${BASE}/api/me`,
+    url: `{{base}}/api/me`,
     headers: auth('token_admin'),
     expected: {
       status: 200,
@@ -120,7 +124,7 @@ const cases = [
   {
     name: `${TAG}09 管理员读员工列表（有 user:read，放行）`,
     method: 'GET',
-    url: `${BASE}/api/users`,
+    url: `{{base}}/api/users`,
     headers: auth('token_admin'),
     expected: { status: 200, jsonChecks: [{ path: '$.items.length', op: 'gte', value: 8 }] },
   },
@@ -133,7 +137,7 @@ const cases = [
   {
     name: `${TAG}11 普通员工读员工列表 → 403（纵向越权）`,
     method: 'GET',
-    url: `${BASE}/api/users`,
+    url: `{{base}}/api/users`,
     headers: auth('token_emp'),
     expected: { status: 403, contains: '缺少权限：user:read' },
   },
@@ -169,7 +173,7 @@ const cases = [
   {
     name: `${TAG}15 提交单据 → 进入待审（currentStep=1）`,
     method: 'POST',
-    url: `${BASE}/api/requests/{{rid}}/submit`,
+    url: `{{base}}/api/requests/{{rid}}/submit`,
     headers: auth('token_emp'),
     expected: {
       status: 200,
@@ -246,13 +250,13 @@ const cases = [
   {
     name: `${TAG}25 未授权下载附件 → 401`,
     method: 'GET',
-    url: `${BASE}/api/attachments/1`,
+    url: `{{base}}/api/attachments/1`,
     expected: { status: 401, contains: '未登录或缺少 token' },
   },
   {
     name: `${TAG}26 越权访问不存在的附件（登录但无此资源）→ 404`,
     method: 'GET',
-    url: `${BASE}/api/attachments/1`,
+    url: `{{base}}/api/attachments/1`,
     headers: auth('token_emp'),
     expected: { status: 404, contains: '附件不存在' },
   },
@@ -265,7 +269,7 @@ const cases = [
   {
     name: `${TAG}28 ★ 登出（把当前 token 作废）`,
     method: 'POST',
-    url: `${BASE}/api/auth/logout`,
+    url: `{{base}}/api/auth/logout`,
     headers: auth('token_doomed'),
     expected: { status: 200, jsonChecks: [{ path: '$.ok', op: 'eq', value: true }] },
   },
@@ -274,7 +278,7 @@ const cases = [
     //   这一条断言的就是 M2 的 token 黑名单：登出后旧 token 必须立刻 401，而不是等 24h 过期。
     name: `${TAG}29 ★ 用已登出的 token 再访问 → 401（登出即作废）`,
     method: 'GET',
-    url: `${BASE}/api/me`,
+    url: `{{base}}/api/me`,
     headers: auth('token_doomed'),
     expected: { status: 401, contains: 'token 已登出' },
   },
@@ -286,7 +290,7 @@ const cases = [
   {
     name: `${TAG}30 未登录看附件列表 → 401（守卫在前，连单据存在与否都不谈）`,
     method: 'GET',
-    url: `${BASE}/api/requests/1/attachments`,
+    url: `{{base}}/api/requests/1/attachments`,
     expected: { status: 401, contains: '未登录或缺少 token' },
   },
   {
@@ -302,14 +306,14 @@ const cases = [
   {
     name: `${TAG}32 ★ 附件列表：申请人看自己的草稿 → 200（横向越权的正面对照）`,
     method: 'GET',
-    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    url: `{{base}}/api/requests/{{rid2}}/attachments`,
     headers: auth('token_emp'),
     expected: { status: 200, jsonChecks: [{ path: '$.total', op: 'eq', value: 0 }] },
   },
   {
     name: `${TAG}33 ★ 附件列表：外部门经理看别人的单据 → 403（和单据详情同一道可见性）`,
     method: 'GET',
-    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    url: `{{base}}/api/requests/{{rid2}}/attachments`,
     headers: auth('token_other_mgr'),
     expected: { status: 403, contains: '无权查看该单据' },
   },
@@ -330,7 +334,7 @@ const cases = [
   {
     name: `${TAG}36 ★ 删除不存在的附件 → 404`,
     method: 'DELETE',
-    url: `${BASE}/api/attachments/999999`,
+    url: `{{base}}/api/attachments/999999`,
     headers: auth('token_emp'),
     expected: { status: 404, contains: '附件不存在' },
   },
@@ -358,7 +362,7 @@ const cases = [
   {
     name: `${TAG}38 ★ 上传后附件列表 total=1（列表和上传认的是同一条记录）`,
     method: 'GET',
-    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    url: `{{base}}/api/requests/{{rid2}}/attachments`,
     headers: auth('token_emp'),
     expected: { status: 200, jsonChecks: [{ path: '$.total', op: 'eq', value: 1 }] },
   },
@@ -367,7 +371,7 @@ const cases = [
     //   ① 字节真的落盘又原样回来 ② 下载不是「URL 猜不到就等于安全」
     name: `${TAG}39 ★ 下载刚上传的附件 → 200 且字节回读一致（contains 夹具正文）`,
     method: 'GET',
-    url: `${BASE}/api/attachments/{{aid}}`,
+    url: `{{base}}/api/attachments/{{aid}}`,
     headers: auth('token_emp'),
     expected: { status: 200, contains: 'iVBORw0KGgo-fake-png-body-content' },
   },
@@ -392,14 +396,14 @@ const cases = [
   {
     name: `${TAG}43 ★ 删掉自己刚上传的附件 → 200`,
     method: 'DELETE',
-    url: `${BASE}/api/attachments/{{aid}}`,
+    url: `{{base}}/api/attachments/{{aid}}`,
     headers: auth('token_emp'),
     expected: { status: 200, jsonChecks: [{ path: '$.ok', op: 'eq', value: true }] },
   },
   {
     name: `${TAG}44 ★ 删除后列表回到 0（记录和落盘文件一起清）`,
     method: 'GET',
-    url: `${BASE}/api/requests/{{rid2}}/attachments`,
+    url: `{{base}}/api/requests/{{rid2}}/attachments`,
     headers: auth('token_emp'),
     expected: { status: 200, jsonChecks: [{ path: '$.total', op: 'eq', value: 0 }] },
   },
@@ -410,9 +414,18 @@ const db = getDb()
 db.prepare(`DELETE FROM schedules WHERE case_id IN (SELECT id FROM test_cases WHERE name LIKE ?)`).run(`${TAG}%`)
 const removed = db.prepare(`DELETE FROM test_cases WHERE name LIKE ?`).run(`${TAG}%`).changes
 
+// —— 环境变量集（M9）：被测地址只定义在这里，并设为「当前环境」——
+// 幂等：同名环境已存在就更新地址（比如换了端口），不重复建。
+const existingEnv = listEnvironments().find((e) => e.name === ENV_NAME)
+const env = existingEnv
+  ? updateEnvironment(existingEnv.id, { baseUrl: BASE })
+  : createEnvironment({ name: ENV_NAME, baseUrl: BASE })
+setActiveEnvironment(env.id)
+
 for (const c of cases) createCase(c)
 
-console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条），被测地址 ${BASE}`)
+console.log(`[oa-suite] 当前环境「${ENV_NAME}」→ ${env.baseUrl}（用例里写 {{base}}，换环境不用改用例）`)
+console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条）`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
 console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态`)

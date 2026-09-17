@@ -34,6 +34,7 @@
   - `GET /api/cases`、`POST /api/cases`、`GET /api/cases/:id`、`PUT /api/cases/:id`、`DELETE /api/cases/:id`
   - `POST /api/cases/:id/run`（单条运行）、`POST /api/run-all`（全部运行汇总）
   - `GET /api/meta/body-options`（请求体类型 + 内置夹具清单，M8）
+  - `GET /api/environments`、`POST /api/environments`、`PUT /api/environments/active`、`PUT /api/environments/:id`、`DELETE /api/environments/:id`（环境变量集，M9）
   - `GET /api/schedules`、`POST /api/schedules`、`PUT /api/schedules/:id`、`DELETE /api/schedules/:id`
   - `GET /api/runs?caseId=&limit=`、`GET /api/reports/summary`
 - 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/执行明细/**定时任务管理**）
@@ -58,7 +59,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 85 例全绿（全离线）
+npm test           # vitest 106 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
@@ -66,11 +67,12 @@ cd web && npm run build   # 前端产物 web/dist
 
 ```bash
 npm run seed:oa    # 写入 44 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面 + 附件全生命周期）
-npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代码起进程）
+                   # 同时定义并选中「当前环境」（地址取 OA_BASE，默认 http://127.0.0.1:3200）
+npm run test:oa    # 让平台去打当前环境指向的 office-oa（会先把环境打印出来）
                    # 等价于 POST /api/run-all {"prefix":"OA-"}；任一条失败即以非 0 退出，可挂 CI
 ```
 
-> ⭐ 这条闭环（含四个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界 → 已在 M8 补掉**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
+> ⭐ 这条闭环（含六个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界 → 已在 M8 补掉** / **变量缺失提示被异常分支吃掉** / **会撒谎的环境徽标**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
 
 ## 鉴权说明（M4）
 
@@ -115,6 +117,35 @@ npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代�
 - **夹具名写错当场报错**，不静默发一个空文件：那会让人以为「被测系统的上传接口有 bug」。
 - **`files` 也走变量渲染**：文件名可以是 `{{var}}`。
 
+## 环境变量集（M9）
+
+原来被测地址只有 `BASE` 一个环境变量，而且是**写用例时就被拼进 URL** 的 ——
+`seed-oa-suite.mjs` 把 `http://127.0.0.1:3200` 烤进了 44 条用例的 url，想换个环境就得重写整套用例。
+M9 把它挪出来：
+
+| 能力 | 用法 |
+|---|---|
+| 环境 | `{ name, baseUrl, headers, vars }`，如 `office-oa（本地）→ http://127.0.0.1:3200` |
+| 用例引用 | URL 写 `{{base}}/api/xxx`（`base` 由环境地址派生），其余变量写 `{{自定义名}}` |
+| 当前环境 | `PUT /api/environments/active {id}`；页头有徽标，**一眼看到这次在打谁** |
+| 默认请求头 | 环境级 headers 会加到每个请求上（如灰度标 `X-Env`） |
+
+设计取舍：
+
+- **同一时刻只有一个当前环境**，存在 `settings` 表的一行 `active_env_id` 里，
+  而不是在 `environments` 上加 `is_active` 列 —— 后者迟早会出现「两行都是 active」这种无法自证的状态。
+- **优先级：环境变量是基线，链上 `extract` 抽到的值优先。** 环境是「你去哪」，extract 是本次链上刚发生的事实
+  （比如刚登录拿到的 token）；基线盖掉事实，等于用过期 token 假装通过。
+- **优先级：环境 headers 是默认值，用例里手写的同名 header 优先**（名字大小写不敏感 ——
+  否则请求里会同时出现 `Content-Type` 和 `content-type`）。
+- **`baseUrl` 保存时就归一化**：去尾部斜杠（否则 `{{base}}/api` 会变成 `//api`）+ 必须 `http(s)://`
+  —— 把「地址写错」拦在保存时，而不是等到跑用例时给一句看不懂的 `fetch failed`。
+- **变量名不许叫 `base`**：两个来源会打架，直接 400 说清楚，不静默忽略。
+- **删掉正在使用的环境不报错**，而是把当前环境清空并返回 `activeCleared`（拒绝删除会让人卡住）；
+  界面同时提示「当前没有选中环境」。
+- 三条运行路径（单跑 / run-all / 定时任务）都走 `runner.runCase`，所以环境只在**一处**生效，不会出现
+  「手动跑用环境、定时跑不用」这种事。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
@@ -127,6 +158,7 @@ npm run test:oa    # 让平台去打 office-oa（OA 需先在 3200 用当前代�
 | **M6** | 演示数据打磨（覆盖全断言类型 + 演示定时任务）+ 项目全讲（教学/作品集文档） | ✅ 已完成 |
 | **M7** | **用例链（`{{var}}` + extract + 按创建顺序串链）+ 分组跑 + 测穿 office-oa（36/36，含附件边界面）** | ✅ 已完成（70 例 + OA 36 条） |
 | **M8** | **请求体类型（json / raw / form-data）+ 文件夹具上传**：手搓 multipart（不引库）+ 内置夹具 + 编辑器支持 → 附件全生命周期也进平台（OA 44/44） | ✅ 已完成（85 例 + OA 44 条） |
+| **M9** | **环境变量集**：用例写 `{{base}}` 而不是写死地址 + 页头当前环境徽标 + 环境级默认请求头 → 换环境不用改用例 | ✅ 已完成（106 例 + OA 44 条） |
 
 > 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 > 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
@@ -144,13 +176,16 @@ src/jsonpath.js   自写 JSONPath 求值器（M3 核心之一）
 src/bodyTypes.js  请求体类型白名单 json / raw / form-data（M8）
 src/multipart.js  手搓 multipart/form-data 包体 + 文件字段解析（boundary / CRLF / 二进制安全，M8）
 src/fixtures.js   内置文件夹具（PNG / PDF / 伪装 exe），字节写进代码保证可重复（M8）
-src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断言 + 变量渲染/抽取 + multipart 组包）
+src/environments.js 环境变量集：{{base}} 来源、当前环境（settings 一行）、环境级默认请求头（M9）
+src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断言 + 变量渲染/抽取 + multipart 组包 + 环境注入）
 src/schedules.js  定时任务 CRUD（cron 校验）
 src/scheduler.js  node-cron 调度器（注册/启停/恢复）
 src/reports.js    执行记录查询 + 报告聚合
-seed-oa-suite.mjs office-oa 用例套件（44 条，用例链 + 附件边界面 + 附件全生命周期）— npm run seed:oa
-run-oa-suite.mjs  一键跑 OA 套件并打印结果 — npm run test:oa
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js  共 85 例，全离线
+seed-oa-suite.mjs office-oa 用例套件（44 条，用例链 + 附件边界面 + 附件全生命周期；并定义当前环境）— npm run seed:oa
+run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
+scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
+scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js  共 106 例，全离线
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
 web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端同源托管）
   src/auth.js     前端会话状态（token + reactive session）

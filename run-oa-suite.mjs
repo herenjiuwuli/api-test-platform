@@ -1,8 +1,9 @@
 // 一键跑「office-oa 用例套件」——把闭环做成一条命令。
 //
 // 做的事：① 拿一个平台账号（没有就现场注册，不碰既有凭据）
-//        ② POST /api/run-all {"prefix":"OA-"} 只跑 OA 那一组，不把示例用例的失败算进来
-//        ③ 打印逐条结果 + 汇总，**任一条失败就以非 0 退出**（能被 CI / 定时任务直接调用）
+//        ② 打印平台当前环境（用例里是 {{base}}，不打出来就不知道到底在打谁）
+//        ③ POST /api/run-all {"prefix":"OA-"} 只跑 OA 那一组，不把示例用例的失败算进来
+//        ④ 打印逐条结果 + 汇总，**任一条失败就以非 0 退出**（能被 CI / 定时任务直接调用）
 //
 // ⚠️ 前提：office-oa 已在 3200 上**用当前代码新起进程**。
 //    踩过的坑：端口上挂着 M2 之前的旧进程，dept_scoped / token 黑名单看起来「失效」，
@@ -42,6 +43,25 @@ async function main() {
   console.log(`[run-oa] 被测系统在线：${OA}`)
 
   const token = await platformToken()
+
+  // 用例里写的是 {{base}}，真正打谁取决于平台的「当前环境」——
+  //   所以跑之前必须把它打印出来：报告上的 URL 和 OA_BASE 不一致时，这是唯一能解释原因的线索。
+  const envRes = await fetch(`${PLATFORM}/api/environments`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (envRes.ok) {
+    const { items, activeId } = await envRes.json()
+    const active = (items || []).find((e) => e.id === activeId)
+    if (active) {
+      console.log(`[run-oa] 平台当前环境：「${active.name}」→ ${active.baseUrl}`)
+      if (active.baseUrl.replace(/\/+$/, '') !== OA.replace(/\/+$/, '')) {
+        console.log(`[run-oa] ⚠️ 与 OA_BASE（${OA}）不一致 —— 平台实际打的是「${active.baseUrl}」`)
+      }
+    } else {
+      console.log('[run-oa] ⚠️ 平台没有「当前环境」—— 用例里的 {{base}} 取不到值，请先 npm run seed:oa')
+    }
+  }
+
   const res = await fetch(`${PLATFORM}/api/run-all`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
