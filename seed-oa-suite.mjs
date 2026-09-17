@@ -407,6 +407,102 @@ const cases = [
     headers: auth('token_emp'),
     expected: { status: 200, jsonChecks: [{ path: '$.total', op: 'eq', value: 0 }] },
   },
+
+  // ── H. 站内通知（M3）：用平台把「通知子系统」也测穿 ─────────────────────
+  // 这一段证明的不是「通知接口能返回 200」，而是「引擎挂钩真的在新事件上触发了」：
+  //   提交流程如果忘了给审批人发通知，下面那条 unread>0 就会先红。
+  {
+    // ★ 提交后审批人（ops01）的未读应 > 0 —— 引擎 submit 挂钩发「待你审批」了
+    name: `${TAG}45 提交后审批人未读数 > 0（挂钩真的触发）`,
+    method: 'GET',
+    url: `{{base}}/api/notifications/unread-count`,
+    headers: auth('token_mgr'),
+    expected: { status: 200, jsonChecks: [{ path: '$.unread', op: 'gte', value: 1 }] },
+  },
+  {
+    // ★ 审批人收件箱最新一条就是本单的 task_assigned，且未读（抽 id 给越权用例用）
+    name: `${TAG}46 审批人通知列表含本单 task（抽 nid_task）`,
+    method: 'GET',
+    url: `{{base}}/api/notifications`,
+    headers: auth('token_mgr'),
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.items[0].type', op: 'eq', value: 'task' },
+        { path: '$.items[0].title', op: 'contains', value: '平台链式用例-采购申请' },
+        { path: '$.items[0].read', op: 'eq', value: false },
+      ],
+    },
+    extract: [{ name: 'nid_task', path: '$.items[0].id' }],
+  },
+  {
+    // ★ 归档后申请人（ops02）收到「已通过」，且 round=1 是事件发生时的快照（抽 id 给标已读用例）
+    name: `${TAG}47 归档后申请人收到已通过通知（round=1 快照，抽 nid_approved）`,
+    method: 'GET',
+    url: `{{base}}/api/notifications`,
+    headers: auth('token_emp'),
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.items[0].type', op: 'eq', value: 'approved' },
+        { path: '$.items[0].title', op: 'contains', value: '平台链式用例-采购申请' },
+        { path: '$.items[0].round', op: 'eq', value: 1 },
+      ],
+    },
+    extract: [{ name: 'nid_approved', path: '$.items[0].id' }],
+  },
+  {
+    // ★ 收件人隔离：外部门经理（exe01）收件箱应为空 —— 不是靠前端过滤
+    name: `${TAG}48 外部门经理收件箱为空（收件人隔离）`,
+    method: 'GET',
+    url: `{{base}}/api/notifications`,
+    headers: auth('token_other_mgr'),
+    expected: { status: 200, jsonChecks: [{ path: '$.items.length', op: 'eq', value: 0 }] },
+  },
+  {
+    // ★ 标已读：返回 read=true，且 unread 重算为 0（角标不会多算）
+    name: `${TAG}49 标记已通过通知为已读 → 200 且 unread 归零`,
+    method: 'POST',
+    url: `{{base}}/api/notifications/{{nid_approved}}/read`,
+    headers: auth('token_emp'),
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.read', op: 'eq', value: true },
+        { path: '$.unread', op: 'eq', value: 0 },
+      ],
+    },
+  },
+  {
+    // ★ 已读幂等：再标一次仍 200，changed=false（不是 409/500）
+    name: `${TAG}50 重复标已读 → 200（幂等，changed=false）`,
+    method: 'POST',
+    url: `{{base}}/api/notifications/{{nid_approved}}/read`,
+    headers: auth('token_emp'),
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.read', op: 'eq', value: true },
+        { path: '$.changed', op: 'eq', value: false },
+      ],
+    },
+  },
+  {
+    // ★★ 写路径隔离：用别人的 token 标我的通知 → 404（和「不存在」同一口径，不泄漏存在性）
+    name: `${TAG}51 他人 token 标我的通知 → 404（授权先于状态）`,
+    method: 'POST',
+    url: `{{base}}/api/notifications/{{nid_approved}}/read`,
+    headers: auth('token_other_mgr'),
+    expected: { status: 404, contains: '通知不存在' },
+  },
+  {
+    // ★ 反向也拦：申请人标审批人的通知 → 404
+    name: `${TAG}52 申请人标审批人通知 → 404（收件人隔离）`,
+    method: 'POST',
+    url: `{{base}}/api/notifications/{{nid_task}}/read`,
+    headers: auth('token_emp'),
+    expected: { status: 404, contains: '通知不存在' },
+  },
 ]
 
 // —— 幂等写入：先清掉上一版 OA- 用例（连带定时任务），再按顺序插入 ——
@@ -428,4 +524,4 @@ console.log(`[oa-suite] 当前环境「${ENV_NAME}」→ ${env.baseUrl}（用例
 console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条）`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
-console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态`)
+console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态 / ${TAG}45 引擎挂钩发通知 / ${TAG}47 通知 round 快照 / ${TAG}51 通知写路径 404`)
