@@ -153,9 +153,13 @@ export function buildApp() {
   })
 
   app.delete('/api/cases/:id', async (req, reply) => {
-    const ok = deleteCase(Number(req.params.id))
-    if (!ok) return reply.code(404).send({ error: '用例不存在' })
-    return { deleted: true }
+    const r = deleteCase(Number(req.params.id))
+    if (!r.deleted) return reply.code(404).send({ error: '用例不存在' })
+    // ⚠️ 删库行不会自动停 cron：用例没了，挂在上面的定时任务必须一起停掉，
+    //    否则内存里留着一个「每次触发都打向空用例」的任务（现在只是靠 runCase 里的 `if (c)` 兜着）。
+    for (const sid of r.scheduleIds) refreshJob({ id: sid, enabled: false })
+    // 连带删掉了什么，如实回给调用方（前端据此提示「已删除（连带 3 条执行记录）」），不静默
+    return { deleted: true, runsDeleted: r.runsDeleted, schedulesDeleted: r.scheduleIds.length }
   })
 
   app.post('/api/cases/:id/run', async (req) => {

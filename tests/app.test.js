@@ -149,7 +149,7 @@ describe('用例 CRUD（SQLite）', () => {
     expect(getCase(c.id).name).toBe('健康检查')
     const before = listCases().length
     expect(before).toBeGreaterThan(0)
-    expect(deleteCase(c.id)).toBe(true)
+    expect(deleteCase(c.id).deleted).toBe(true)
     expect(getCase(c.id)).toBeNull()
   })
 
@@ -161,7 +161,7 @@ describe('用例 CRUD（SQLite）', () => {
     expect(u.expected.contains).toBe('hello')
     expect(u.expected.status).toBeUndefined() // expected 整体替换（不深合并），未传字段消失
     expect(updateCase(999999, { name: 'x' })).toBeNull()
-    expect(deleteCase(c.id)).toBe(true)
+    expect(deleteCase(c.id).deleted).toBe(true)
   })
 })
 

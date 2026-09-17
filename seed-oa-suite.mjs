@@ -524,9 +524,13 @@ function groupOf(name) {
 }
 for (const c of cases) c.group = groupOf(c.name)
 
-// —— 幂等写入：先清掉上一版 OA- 用例（连带定时任务），再按顺序插入 ——
+// —— 幂等写入：先清掉上一版 OA- 用例（连带定时任务与执行记录），再按顺序插入 ——
+// ⚠️ 执行记录必须一起清理：`runs.case_id` 不是外键，只删用例的话每重新 seed 一次就留一批孤儿，
+//    报告里会冒出一堆无名的「用例#id」（本机实测积到 791 条）。
+//    顺序有讲究：先 schedules、再 runs、最后 cases —— 后两步都靠子查询找到「待删用例」。
 const db = getDb()
 db.prepare(`DELETE FROM schedules WHERE case_id IN (SELECT id FROM test_cases WHERE name LIKE ?)`).run(`${TAG}%`)
+const removedRuns = db.prepare(`DELETE FROM runs WHERE case_id IN (SELECT id FROM test_cases WHERE name LIKE ?)`).run(`${TAG}%`).changes
 const removed = db.prepare(`DELETE FROM test_cases WHERE name LIKE ?`).run(`${TAG}%`).changes
 
 // —— 环境变量集（M9）：被测地址只定义在这里，并设为「当前环境」——
@@ -540,7 +544,7 @@ setActiveEnvironment(env.id)
 for (const c of cases) createCase(c)
 
 console.log(`[oa-suite] 当前环境「${ENV_NAME}」→ ${env.baseUrl}（用例里写 {{base}}，换环境不用改用例）`)
-console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条）`)
+console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条、旧执行记录 ${removedRuns} 条）`)
 console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)

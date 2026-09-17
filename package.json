@@ -9,6 +9,7 @@
     "seed": "node seed.js",
     "seed:oa": "node seed-oa-suite.mjs",
     "test:oa": "node run-oa-suite.mjs",
+    "clean:orphans": "node scripts/clean-orphan-runs.mjs",
     "dev": "concurrently -n be,fe -c green,blue \"node index.js\" \"npm --prefix web run dev\"",
     "dev:be": "node --watch index.js",
     "dev:fe": "npm --prefix web run dev",

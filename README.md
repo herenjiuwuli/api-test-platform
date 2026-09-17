@@ -60,7 +60,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 139 例全绿（全离线）
+npm test           # vitest 145 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
@@ -226,7 +226,7 @@ M7 之后平台里有了一条 44 条的 office-oa 用例链，但它是**长在
 
 落点：`test_cases` 加 `"group"` 列（DEFAULT ''，`group` 是 SQL 保留字故双引号引用）；`createCase` 收 group、`listCases(group?)` 可按组查、`updateCase` 可改、`normalize` 还原；套件导出/导入**保留 group**（M11 协同）；编辑器可填分组；列表页有分组标签 + 筛选 + 「运行该分组」按钮。
 
-实际验证：`node scripts/m12-group-ui-check.mjs`（24 条 = 接口层 12 + 真机层 12），vitest **139 例**（含 7 例分组专用）。
+实际验证：`node scripts/m12-group-ui-check.mjs`（24 条 = 接口层 12 + 真机层 12），vitest 新增 7 例分组测试（`tests/group.test.js`）。
 真机层用 CDP **真的在下拉里选中分组**，断言「列表真的只剩这一组」（结果里不含任何 `OA-` 行）、
 未选分组时「运行该分组」是禁用的（避免误点成「跑全部」）、点下去后汇总弹窗写明「筛选：分组：X」
 且结果表条数 = 组内条数。接口层的负向对照是「`run-all` 传一个查无此组 → `total` 必须是 0」：
@@ -234,6 +234,34 @@ M7 之后平台里有了一条 44 条的 office-oa 用例链，但它是**长在
 收尾除了删用例，还要删掉本次跑出来的**执行记录** —— `deleteCase` 不级联删 `runs`，
 只删用例的话，报告里会永远多出一个指向已删除用例的 `用例#id`。
 OA 套件 52 条按 8 组打标后跑闭环仍为 **52/52**。
+
+## 删用例的连带清理（M13）
+
+`runs.case_id` 与 `schedules.case_id` **都不是外键**，所以历史上「删用例」只删掉用例本身，派生数据全留成孤儿：
+报告页「按用例汇总」里冒出一堆连名字都没有的 **「用例#id」**，调度器里留着一个指向空用例的任务。
+更糟的是 `npm run seed`（示例用例）和 `npm run seed:oa`（OA 套件）**每次都要先删旧用例再插新的**，
+于是孤儿一轮轮累积 —— **本机实测积到 791 条**，涉及 433 个已不存在的用例 id。
+
+修法是让「删」这件事在**一处**收口（`deleteCase`，同一事务）：
+
+| 连带删掉 | 为什么 |
+|---|---|
+| `runs`（执行记录） | 用例没了，它的执行历史也就不可解释 —— 连「跑的是哪条用例」都答不出来，留着只是噪声 |
+| `schedules`（定时任务） | 否则留下一个指向不存在用例的定时任务；⚠️ 删库行**不会自动停内存里的 cron**，所以 `deleteCase` 会把 `scheduleIds` 回传给路由，由路由调 `refreshJob({id, enabled:false})` 停掉 |
+| 用例本身 | 若用例不存在则**整笔回滚**，不顺手删掉恰好指向这个 id 的历史数据 |
+
+两个 seed 脚本也各自补了执行记录清理（顺序：`schedules` → `runs` → `cases`，后两步靠子查询找待删用例）。
+接口把连带删掉的条数如实回传（`{deleted, runsDeleted, schedulesDeleted}`），前端提示「已删除（连带 3 条执行记录）」——
+**静默毁掉几十条历史，比多一句话危险。**
+
+历史遗留的孤儿用维护脚本扫尾（默认只报告，`--yes` 才删）：
+
+```bash
+npm run clean:orphans            # 只报告：多少条孤儿、涉及哪些已删除的用例 id
+npm run clean:orphans -- --yes   # 真删，删完复查「剩余 0 条」
+```
+
+实测：清理前 791 条 → 清理后 **0 条**，剩余执行记录全部能对上活着的用例（清理前先 `cp data/app.db data/backups/…` 并用只读连接验证备份可读）。
 
 ## 里程碑路线
 
@@ -251,6 +279,7 @@ OA 套件 52 条按 8 组打标后跑闭环仍为 **52/52**。
 | **M10** | **执行记录记住「这次跑在哪个环境」**：`runs` 存环境的**快照**（名字 + 地址）而不只是外键 → 改地址不会改写历史；报告新增「按运行环境汇总」 | ✅ 已完成（113 例 + OA 44 条） |
 | **M11** | **套件导出 / 导入**：把「用例 + 环境」打成一个能带走的 JSON（**敏感头的值脱敏、顺序即串链顺序、不带本地 id**），导入支持 rename / overwrite / skip 三种冲突策略，坏条目不影响其余 | ✅ 已完成（132 例 + OA 44 条） |
 | **M12** | **用例分组**：`group` 业务标签（列表筛选 / 按组运行 / 报告按组汇总），套件导入导出保留分组，编辑器可填分组 | ✅ 已完成（139 例 + OA 52 条） |
+| **M13** | **删用例的连带清理**：删用例连带删执行记录与定时任务（同一事务，并停掉内存里的 cron），`deleteCase` 返回连带条数供前端如实提示；两个 seed 脚本补上执行记录清理；新增 `npm run clean:orphans` 扫尾历史遗留（实测清掉 **791 条**孤儿） | ✅ 已完成（145 例 + OA 52 条） |
 
 > 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 > 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
@@ -262,7 +291,7 @@ index.js          Fastify 应用 + 路由（含 auth/schedules/runs/reports）+ 
 src/db.js         SQLite 封装（test_cases / runs / schedules / users）+ 幂等迁移（新列自动补）
 src/auth.js       鉴权核心：scrypt 密码哈希 + 手写 HS256 JWT（signToken/verifyToken）
 src/users.js      用户服务：createUser/verifyLogin/initDefaultUser/changePassword
-src/cases.js      用例 CRUD（含 updateCase 部分更新 + extract 抽取声明）
+src/cases.js      用例 CRUD（含 updateCase 部分更新 + extract 抽取声明 + **deleteCase 连带删执行记录与定时任务**）
 src/vars.js       用例链：{{var}} 模板渲染 + 按 JSONPath 从响应抽变量（M7）
 src/jsonpath.js   自写 JSONPath 求值器（M3 核心之一）
 src/bodyTypes.js  请求体类型白名单 json / raw / form-data（M8）
@@ -278,7 +307,8 @@ seed-oa-suite.mjs office-oa 用例套件（52 条 + 按 A–H 段打 `group` 分
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
 scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
 scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js  共 139 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js  共 145 例，全离线
+scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
 scripts/m11-suite-ui-check.mjs   套件导出/导入验证（接口层脱敏 + 真机层真的选文件导入；跑完自动清场）
 scripts/m12-group-ui-check.mjs   用例分组验证（接口层 + 真机层选分组/按组运行；收尾连执行记录一起清，报告不留孤儿）

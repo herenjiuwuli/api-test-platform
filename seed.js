@@ -75,10 +75,12 @@ const db = getDb()
 
 // 1) 清旧的示例定时任务（依赖示例用例，必须先于用例删除）
 db.prepare(`DELETE FROM schedules WHERE case_id IN (SELECT id FROM test_cases WHERE name LIKE '示例-%')`).run()
-// 2) 清旧的示例用例
+// 2) 清旧的示例执行记录（runs.case_id 不是外键，不删就留成孤儿 → 报告里冒出无名的「用例#id」）
+const deletedRuns = db.prepare(`DELETE FROM runs WHERE case_id IN (SELECT id FROM test_cases WHERE name LIKE '示例-%')`).run().changes
+// 3) 清旧的示例用例
 const deletedCases = db.prepare(`DELETE FROM test_cases WHERE name LIKE '示例-%'`).run().changes
 
-// 3) 插入新示例用例，记录 id 以便挂演示定时任务
+// 4) 插入新示例用例，记录 id 以便挂演示定时任务
 const stmt = db.prepare(
   `INSERT INTO test_cases (name, method, url, headers_json, body_json, expected_json)
    VALUES (?, ?, ?, ?, ?, ?)`,
@@ -96,7 +98,7 @@ for (const d of demos) {
   ids[d.name] = info.lastInsertRowid
 }
 
-// 4) 演示定时任务：每天 09:00 自动跑「JSONPath 示例」——默认停用，用户可在「报告/定时」页启用查看效果
+// 5) 演示定时任务：每天 09:00 自动跑「JSONPath 示例」——默认停用，用户可在「报告/定时」页启用查看效果
 const schedCase = ids['示例-GET+JSONPath(JSONPlaceholder)']
 let schedMsg = '（未挂演示定时任务）'
 if (schedCase) {
@@ -104,4 +106,4 @@ if (schedCase) {
   schedMsg = '，含 1 条演示定时任务（默认停用，可在「报告/定时」页启用）'
 }
 
-console.log(`已写入示例用例 ${demos.length} 条（清理旧示例用例 ${deletedCases} 条）${schedMsg}。`)
+console.log(`已写入示例用例 ${demos.length} 条（清理旧示例用例 ${deletedCases} 条、旧执行记录 ${deletedRuns} 条）${schedMsg}。`)

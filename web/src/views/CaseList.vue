@@ -257,12 +257,21 @@ async function onRunGroup() {
 
 async function onDelete(row) {
   try {
-    await ElMessageBox.confirm(`确定删除用例「${row.name}」？`, '删除确认', { type: 'warning' })
+    // 确认文案里就把「连带的也会被删掉」说清楚 —— 静默毁掉几十条历史比多一句话危险
+    await ElMessageBox.confirm(
+      `确定删除用例「${row.name}」？它的执行记录与定时任务会一起删掉，且不可恢复。`,
+      '删除确认',
+      { type: 'warning' },
+    )
   } catch {
     return
   }
-  await api.deleteCase(row.id)
-  ElMessage.success('已删除')
+  // 连带删掉了多少，由后端如实回传，不静默
+  const r = await api.deleteCase(row.id)
+  const extra = []
+  if (r.runsDeleted) extra.push(`${r.runsDeleted} 条执行记录`)
+  if (r.schedulesDeleted) extra.push(`${r.schedulesDeleted} 个定时任务`)
+  ElMessage.success(extra.length ? `已删除（连带 ${extra.join('、')}）` : '已删除')
   load()
 }
 

@@ -5,17 +5,14 @@
 //   真机层 —— 列表真有「分组」列与筛选下拉、选中分组后列表真的只剩那一组、
 //            「运行该分组」真的只跑这一组、报告页出现「按业务分组汇总」、编辑器有「分组」输入框。
 //
-// ⚠️ 收尾必须不留副作用：为了验证「运行该分组」这条 UI → API 链路，本脚本会**真的跑一次**自己的临时用例；
-//    而平台的 deleteCase **不级联删 runs**、也没有「删执行记录」的接口 —— 只删用例的话，
-//    报告里会永远留着一个指向已删除用例的 `用例#id` 和一个「(未分组)」计数。
-//    所以收尾走一步「直连 SQLite 删掉这几条执行记录」（seed 脚本同样直接读写库，是既有做法）。
+// ⚠️ 收尾必须不留副作用：为了验证「运行该分组」这条 UI → API 链路，本脚本会**真的跑一次**自己的临时用例，
+//    就必然产生执行记录。好在 `deleteCase` 现在**连带删执行记录**（M13），收尾只要删用例即可 ——
+//    顺便还能把「连带删除」这条行为一起验证掉。
+//    （修复前它不管 runs、也没有「删执行记录」的接口，脚本只能自己直连 SQLite 去删。）
 //
 // 跑法：node scripts/m12-group-ui-check.mjs   （需要平台在 3001 跑着）
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { withBrowser, checks, PAGE_HELPERS, sleep, tempPlatformToken, loginByToken } from './lib/cdp.mjs'
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BASE = 'http://127.0.0.1:3001'
 const STAMP = Date.now().toString(36)
 const c = checks()
@@ -249,43 +246,26 @@ const allCases = (await j('/api/cases')).body || []
 // 否则「测试脚本自己脏了库」会一直被忽略。M12UI- 是脚本专属命名空间。
 const mineCases = allCases.filter((x) => String(x.name).includes(OWN_PREFIX))
 const mineIds = mineCases.map((x) => x.id)
-for (const x of mineCases) await j(`/api/cases/${x.id}`, { method: 'DELETE' })
+
+// 删用例时**连着执行记录一起删**（deleteCase 的行为），并把删掉的条数报回来
+let runsDeletedByApi = 0
+for (const x of mineCases) {
+  const r = await j(`/api/cases/${x.id}`, { method: 'DELETE' })
+  runsDeletedByApi += r.body?.runsDeleted || 0
+}
 
 const leftCases = ((await j('/api/cases')).body || []).filter((x) => String(x.name).includes(OWN_PREFIX))
 c.check('收尾：本次造的用例全部删净', leftCases.length === 0, `删了 ${mineCases.length} 条，剩 ${leftCases.length}`)
 
-// 执行记录：deleteCase 不级联删 runs，也没有删 runs 的接口 —— 直接对着库删。
-// DB_PATH 显式指向项目下的 data/app.db，避免「脚本从别的目录跑起来、连到另一个库」。
-process.env.DB_PATH = path.resolve(ROOT, 'data', 'app.db')
-let orphanLeft = -1
-let runDeleted = 0
-try {
-  const { getDb } = await import('../src/db.js')
-  const db = getDb()
-  for (const id of mineIds) runDeleted += db.prepare(`DELETE FROM runs WHERE case_id = ?`).run(id).changes
-  orphanLeft = db
-    .prepare(
-      mineIds.length
-        ? `SELECT COUNT(*) n FROM runs WHERE case_id IN (${mineIds.map(() => '?').join(',')})`
-        : `SELECT 0 n`,
-    )
-    .get(...mineIds).n
-} catch (e) {
-  console.error('  （清理执行记录失败：' + e.message + '）')
-}
+// ★ 这里顺带把「删用例连带删执行记录」这条行为也验证了：
+//   以前 deleteCase 不管 runs，脚本只能自己直连库去删（否则报告里永远留一个「用例#id」）；
+//   现在接口自己就带走了，脚本不需要再碰数据库 —— 收尾回到「只用接口」的干净形态。
+let leftRuns = 0
+for (const id of mineIds) leftRuns += ((await j(`/api/runs?caseId=${id}`)).body || []).length
 c.check(
-  '收尾：本次跑出来的执行记录也删净（报告里不会留「用例#id」这种孤儿）',
-  orphanLeft === 0,
-  `删了 ${runDeleted} 条执行记录，剩 ${orphanLeft}${orphanLeft < 0 ? '（查询没跑成）' : ''}`,
+  '★ 收尾：执行记录由删用例连带删除（脚本不再需要直连库清理）',
+  leftRuns === 0 && runsDeletedByApi === expectedInGroup,
+  `接口报连带删了 ${runsDeletedByApi} 条（预期 ${expectedInGroup}），复查剩 ${leftRuns} 条`,
 )
-
-// 顺手把「坏掉的孤儿记录」数一遍，供排查用（不参与判定）
-try {
-  const { getDb } = await import('../src/db.js')
-  const orphans = getDb()
-    .prepare(`SELECT COUNT(*) n FROM runs WHERE case_id IS NOT NULL AND case_id NOT IN (SELECT id FROM test_cases)`)
-    .get().n
-  console.log(`\n  （信息）库里指向已删除用例的执行记录：${orphans} 条`)
-} catch {}
 
 c.finish()

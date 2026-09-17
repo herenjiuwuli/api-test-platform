@@ -83,8 +83,40 @@ export function updateCase(id, input = {}) {
   return getCase(id)
 }
 
+/**
+ * 删除用例 —— **连带删掉它的执行记录与定时任务**（同一事务）。
+ *
+ * 为什么必须连带删：`runs.case_id` / `schedules.case_id` 都不是外键，删用例时派生数据不会被带走，
+ * 只会留成「孤儿」—— 报告里冒出一个连名字都没有的「用例#id」，调度器里留一个指向空用例的任务。
+ * 而 `npm run seed`（示例用例）和 `npm run seed:oa`（OA 套件）**每次都要先删旧用例再插新的**，
+ * 于是孤儿一遍遍累积（本机实测积到 **791 条**）。
+ * 用例没了，它的执行历史也就不可解释了（连「跑的是哪条用例」都答不出来），留着只是噪声。
+ *
+ * 返回 `{ deleted, runsDeleted, scheduleIds }`。⚠️ 调用方（路由层）必须拿 `scheduleIds`
+ * 去**停掉内存里的 cron** —— 删库行不会自动停任务，这条只能由路由补。
+ */
 export function deleteCase(id) {
-  return getDb().prepare(`DELETE FROM test_cases WHERE id = ?`).run(id).changes > 0
+  const db = getDb()
+  db.exec('BEGIN')
+  try {
+    const scheduleIds = db
+      .prepare(`SELECT id FROM schedules WHERE case_id = ?`)
+      .all(id)
+      .map((row) => row.id)
+    const runsDeleted = db.prepare(`DELETE FROM runs WHERE case_id = ?`).run(id).changes
+    db.prepare(`DELETE FROM schedules WHERE case_id = ?`).run(id)
+    const deleted = db.prepare(`DELETE FROM test_cases WHERE id = ?`).run(id).changes > 0
+    if (!deleted) {
+      // 用例不存在：整笔回滚，别顺手删掉恰好指向这个 id 的历史数据
+      db.exec('ROLLBACK')
+      return { deleted: false, runsDeleted: 0, scheduleIds: [] }
+    }
+    db.exec('COMMIT')
+    return { deleted: true, runsDeleted, scheduleIds }
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
 }
 
 /**
