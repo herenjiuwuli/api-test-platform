@@ -6,7 +6,7 @@
       <div class="brand">
         <span class="brand-dot">⚡</span>
         <span class="brand-name">API 自动化测试平台</span>
-        <span class="brand-sub">M9 · 用例链 + 文件上传 + 环境变量集</span>
+        <span class="brand-sub">M10 · 用例链 + 文件上传 + 环境变量集 + 记录里带环境快照</span>
       </div>
       <div class="nav">
         <el-tag v-if="activeEnvName" type="success" effect="plain" size="small" class="env-tag" @click="$router.push('/environments')">

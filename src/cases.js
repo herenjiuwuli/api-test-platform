@@ -77,13 +77,28 @@ export function deleteCase(id) {
   return getDb().prepare(`DELETE FROM test_cases WHERE id = ?`).run(id).changes > 0
 }
 
-export function saveRun({ caseId, pass, status, durationMs, detail }) {
+/**
+ * 写一条执行记录。
+ * `env` 是**运行时的环境快照**（{id,name,baseUrl} 或 null）—— 存快照而不是只存 env_id，
+ * 这样以后改了环境地址，历史记录不会跟着被改写（「那次实际打的是哪个地址」必须留得住）。
+ */
+export function saveRun({ caseId, pass, status, durationMs, detail, env }) {
+  const snapshot = env && env.baseUrl ? env : null
   getDb()
     .prepare(
-      `INSERT INTO runs (case_id, pass, status, duration_ms, detail_json)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (case_id, pass, status, duration_ms, detail_json, env_id, env_name, base_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(caseId ?? null, pass ? 1 : 0, status || 0, durationMs || 0, JSON.stringify(detail || []))
+    .run(
+      caseId ?? null,
+      pass ? 1 : 0,
+      status || 0,
+      durationMs || 0,
+      JSON.stringify(detail || []),
+      snapshot ? snapshot.id ?? null : null,
+      snapshot ? snapshot.name || '' : '',
+      snapshot ? snapshot.baseUrl : '',
+    )
 }
 
 // 把数据库行（JSON 字符串字段）还原成结构化用例

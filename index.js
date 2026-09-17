@@ -35,13 +35,14 @@ import { FIXTURES, fixtureNames } from './src/fixtures.js'
 import {
   createEnvironment,
   deleteEnvironment,
+  getActiveEnvironment,
   getActiveId,
   getEnvironment,
   listEnvironments,
   setActiveEnvironment,
   updateEnvironment,
 } from './src/environments.js'
-import { runCase, runAll } from './src/runner.js'
+import { envSnapshot, runCase, runAll } from './src/runner.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
@@ -180,6 +181,8 @@ export function buildApp() {
       passed,
       failed: cases.length - passed,
       filter: prefix || (ids?.length ? 'ids' : null),
+      // 整轮用的哪个环境 —— 空结果（没有匹配的用例）时也要说得出来，所以从当前环境直接取
+      env: envSnapshot(getActiveEnvironment()),
       results,
     }
   })
@@ -330,7 +333,7 @@ if (isDirectRun) {
     initDefaultUser()
     // 直接运行时启动定时调度器（测试里不启动，保证隔离）
     startScheduler()
-    console.log(`✅ API 测试平台 M9 已启动：http://localhost:${port}（定时任务已恢复）`)
+    console.log(`✅ API 测试平台 M10 已启动：http://localhost:${port}（定时任务已恢复）`)
   }).catch((e) => {
     console.error('启动失败：', e.message)
     process.exit(1)

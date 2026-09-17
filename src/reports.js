@@ -11,6 +11,7 @@ export function listRuns({ caseId, limit = 20 } = {}) {
     args.push(Number(caseId))
   }
   let sql = `SELECT r.id, r.case_id, r.pass, r.status, r.duration_ms, r.detail_json, r.ran_at,
+                    r.env_id, r.env_name, r.base_url,
                     c.name AS case_name
              FROM runs r LEFT JOIN test_cases c ON c.id = r.case_id`
   if (where.length) sql += ' WHERE ' + where.join(' AND ')
@@ -49,6 +50,27 @@ export function getReportSummary() {
       lastPass: !!row.last_pass,
     }))
 
+  // 按「运行环境」聚合（M10）：同一组用例跨了两个环境时，通过率必须分开看 ——
+  // 混在一起的平均值会掩盖「换个环境就全红」。分组键用**快照**（名字 + 地址），
+  // 所以环境地址改过之后会自然分成两组：历史记录不会被改写成「它从没打过的地址」。
+  const byEnv = db
+    .prepare(
+      `SELECT COALESCE(NULLIF(env_name, ''), '(未记录环境)') AS env_name,
+              COALESCE(NULLIF(base_url, ''), '') AS base_url,
+              COUNT(*) runs, COALESCE(SUM(pass), 0) passed, MAX(ran_at) last_run_at
+       FROM runs GROUP BY runs.env_name, runs.base_url ORDER BY last_run_at DESC, runs DESC`,
+    )
+    .all()
+    .map((row) => ({
+      name: row.env_name,
+      baseUrl: row.base_url,
+      runs: row.runs,
+      passed: row.passed,
+      failed: row.runs - row.passed,
+      passRate: Math.round((row.passed / row.runs) * 100),
+      lastRunAt: row.last_run_at,
+    }))
+
   return {
     totalCases,
     totalRuns,
@@ -56,6 +78,7 @@ export function getReportSummary() {
     failedRuns,
     passRate,
     byCase,
+    byEnv,
     recentRuns: listRuns({ limit: 10 }),
   }
 }
@@ -76,5 +99,7 @@ function normalizeRun(row) {
     durationMs: row.duration_ms,
     detail,
     ranAt: row.ran_at,
+    // 环境快照：老记录（M10 之前跑的）这三个字段是空的，用 null 表示「不知道」，别编一个出来
+    env: row.base_url ? { id: row.env_id ?? null, name: row.env_name || '', baseUrl: row.base_url } : null,
   }
 }

@@ -59,7 +59,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 106 例全绿（全离线）
+npm test           # vitest 113 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
@@ -146,6 +146,28 @@ M9 把它挪出来：
 - 三条运行路径（单跑 / run-all / 定时任务）都走 `runner.runCase`，所以环境只在**一处**生效，不会出现
   「手动跑用环境、定时跑不用」这种事。
 
+## 执行记录里的环境快照（M10）
+
+M9 把「打谁」变成了**可变的**，于是立刻冒出个新问题：报告里只有通过率，**答不出这次跑在哪个环境**。
+在地址固定写死的年代这不是问题（只有一个地址），地址一变可配，**每一条不写清「当时用的是哪个值」的历史记录，都变得不可解释**。
+
+修法就一句：`runs` 表**存快照**，不只是外键。
+
+| 列 | 说明 |
+|---|---|
+| `env_id` | 外键（方便以后做「只看某个环境的历史」的跳转） |
+| `env_name` / `base_url` | **执行当时**的名字与地址快照 |
+
+- **为什么不能只存 `env_id`**：地址改过之后（本地 → 预发），只存外键会让历史记录被**反向改写**成
+  「它从没打过的地址」。这与 office-oa 的 `flow_snapshot`（改流程模板不影响在途单据）是同一条教训 ——
+  **配置是活的，历史是死的。**
+- 报告新增 **「按运行环境汇总」**：分组键是快照（名字 + 地址），所以环境地址改过之后会**自然分成两组**，
+  「换个环境就全红」一眼看得出来；混在一起算平均值只会掩盖它。
+- **M10 之前的老记录**（没有这三列）归到「(未记录环境)」一组，**不编造**环境名 ——
+  升级后第一次打开报告就能看到这一组（本机实测 557 条历史），这本身就是迁移留痕。
+- 实际验证：`npm run seed:oa && npm run test:oa` 之后跑 `node scripts/m10-report-env-check.mjs`，
+  报告里能读出「office-oa（本地）」→ `http://127.0.0.1:3200`、执行 44 次、通过率 100%。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
@@ -159,6 +181,7 @@ M9 把它挪出来：
 | **M7** | **用例链（`{{var}}` + extract + 按创建顺序串链）+ 分组跑 + 测穿 office-oa（36/36，含附件边界面）** | ✅ 已完成（70 例 + OA 36 条） |
 | **M8** | **请求体类型（json / raw / form-data）+ 文件夹具上传**：手搓 multipart（不引库）+ 内置夹具 + 编辑器支持 → 附件全生命周期也进平台（OA 44/44） | ✅ 已完成（85 例 + OA 44 条） |
 | **M9** | **环境变量集**：用例写 `{{base}}` 而不是写死地址 + 页头当前环境徽标 + 环境级默认请求头 → 换环境不用改用例 | ✅ 已完成（106 例 + OA 44 条） |
+| **M10** | **执行记录记住「这次跑在哪个环境」**：`runs` 存环境的**快照**（名字 + 地址）而不只是外键 → 改地址不会改写历史；报告新增「按运行环境汇总」 | ✅ 已完成（113 例 + OA 44 条） |
 
 > 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 > 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
@@ -185,7 +208,8 @@ seed-oa-suite.mjs office-oa 用例套件（44 条，用例链 + 附件边界面 
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
 scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
 scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js  共 106 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js  共 113 例，全离线
+scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
 web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端同源托管）
   src/auth.js     前端会话状态（token + reactive session）

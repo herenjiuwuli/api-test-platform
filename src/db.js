@@ -92,6 +92,12 @@ function migrate(db) {
   // M8：请求体类型（json / raw / form-data）+ form-data 的文件字段声明
   addColumn(`ALTER TABLE test_cases ADD COLUMN body_type TEXT NOT NULL DEFAULT 'json'`)
   addColumn(`ALTER TABLE test_cases ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'`)
+  // M10：执行记录里的「这次跑在哪个环境」——存的是**快照**（名字 + 地址），不只是外键。
+  // 理由：环境地址以后被改（比如从本地换到预发），历史记录必须仍然说得出「那次实际打的是哪个地址」。
+  // 只存 env_id 的话，改一次地址就把历史全改写成了「它从没打过的地址」。
+  addColumn(`ALTER TABLE runs ADD COLUMN env_id INTEGER`)
+  addColumn(`ALTER TABLE runs ADD COLUMN env_name TEXT NOT NULL DEFAULT ''`)
+  addColumn(`ALTER TABLE runs ADD COLUMN base_url TEXT NOT NULL DEFAULT ''`)
 }
 
 export function closeDb() {

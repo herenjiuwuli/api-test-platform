@@ -116,17 +116,25 @@ export async function runCase(def, { persist = true, vars, env } = {}) {
       detail,
       extracted,
       bodyPreview: text.slice(0, 200),
+      // 这条用例是在哪个环境上跑的 —— 结果里带上，报告才说得清「这次打的是谁」
+      env: envSnapshot(activeEnv),
     }
-    if (persist) saveRun({ caseId: def.id, pass, status, durationMs, detail })
+    if (persist) saveRun({ caseId: def.id, pass, status, durationMs, detail, env: activeEnv })
     return result
   } catch (e) {
     const durationMs = Math.round(performance.now() - started)
     // 把「谁没赋值」放在最前面：读报告的人应该先看到「是变量缺了」，再看到 fetch 的原始报错
     const detail = missingNote ? [missingNote, e.message] : [e.message]
-    const result = { pass: false, status: 0, durationMs, detail, error: true }
-    if (persist) saveRun({ caseId: def.id, pass: false, status: 0, durationMs, detail })
+    const result = { pass: false, status: 0, durationMs, detail, error: true, env: envSnapshot(activeEnv) }
+    if (persist) saveRun({ caseId: def.id, pass: false, status: 0, durationMs, detail, env: activeEnv })
     return result
   }
+}
+
+/** 环境快照：只留会写进记录的那三个字段，避免把整份环境对象（含 headers/vars）带进响应 */
+export function envSnapshot(env) {
+  if (!env || !env.baseUrl) return null
+  return { id: env.id ?? null, name: env.name || '', baseUrl: env.baseUrl }
 }
 
 // ---------------------------------------------------------------------------

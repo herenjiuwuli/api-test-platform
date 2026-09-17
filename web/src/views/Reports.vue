@@ -20,6 +20,36 @@
     </div>
 
     <el-card class="sec" shadow="never">
+      <template #header>
+        <span>🌐 按运行环境汇总</span>
+        <span class="head-hint">同一组用例跨了两个环境时，通过率要分开看 —— 混在一起的平均值会掩盖「换个环境就全红」</span>
+      </template>
+      <el-table :data="summary.byEnv" border size="small" v-loading="loading">
+        <el-table-column prop="name" label="环境" min-width="150" show-overflow-tooltip />
+        <el-table-column label="地址（当时实际打的）" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.baseUrl || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="runs" label="执行" width="70" />
+        <el-table-column label="通过/失败" width="120">
+          <template #default="{ row }">
+            <span class="pass-text">{{ row.passed }}</span> / <span class="fail-text">{{ row.failed }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="通过率" width="140">
+          <template #default="{ row }">
+            <el-progress :percentage="row.passRate" :stroke-width="10" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="lastRunAt" label="最近运行" width="160" />
+        <template #empty>还没有执行记录——先建用例并运行一次</template>
+      </el-table>
+      <div class="foot-hint">
+        这里的名字和地址是<strong>执行当时</strong>的快照：以后改了环境地址，历史记录不会跟着变，
+        「那次实际打的是哪个地址」永远查得到（显示「(未记录环境)」= 那一轮跑的记录里还没这一项）。
+      </div>
+    </el-card>
+
+    <el-card class="sec" shadow="never">
       <template #header>📊 按用例汇总</template>
       <el-table :data="summary.byCase" border size="small" v-loading="loading">
         <el-table-column prop="name" label="用例" min-width="180" show-overflow-tooltip />
@@ -54,6 +84,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态码" width="70" />
+        <el-table-column label="运行环境" width="150" show-overflow-tooltip>
+          <template #default="{ row }">
+            <el-tag v-if="row.env" size="small" type="success" effect="plain">{{ row.env.name || row.env.baseUrl }}</el-tag>
+            <span v-else class="detail-text">—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="durationMs" label="耗时(ms)" width="90" />
         <el-table-column label="明细" min-width="220">
           <template #default="{ row }">
@@ -103,7 +139,7 @@ import { api } from '../api'
 const loading = ref(false)
 const schedLoading = ref(false)
 const schedSaving = ref(false)
-const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], recentRuns: [] })
+const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], byEnv: [], recentRuns: [] })
 const schedules = ref([])
 const cases = ref([])
 const schedForm = ref({ caseId: null, cron: '' })
@@ -178,6 +214,8 @@ onMounted(load)
 .stat-card.danger .stat-num { color: #f56c6c; }
 .stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
 .sec { margin-bottom: 16px; }
+.head-hint { font-size: 12px; color: #909399; font-weight: 400; margin-left: 8px; }
+.foot-hint { font-size: 12px; color: #909399; line-height: 1.7; margin-top: 10px; }
 .pass-text { color: #67c23a; font-weight: 600; }
 .fail-text { color: #f56c6c; font-weight: 600; }
 .detail-text { font-size: 12px; color: #909399; }
