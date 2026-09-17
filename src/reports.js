@@ -71,6 +71,26 @@ export function getReportSummary() {
       lastRunAt: row.last_run_at,
     }))
 
+  // 按「业务分组」聚合（M12）：用例打了 group 标签后，报告要能「按主题看通过率」——
+  // 比如一眼看出「附件全周期」这组最近是不是全红，而不必在 52 条 byCase 里肉眼扫。
+  // 没打组的用例归到「(未分组)」。和 byEnv 同理：分组是语义标签，换个说法也不会改写历史。
+  const byGroup = db
+    .prepare(
+      `SELECT COALESCE(NULLIF(c."group", ''), '(未分组)') AS grp,
+              COUNT(*) runs, COALESCE(SUM(r.pass), 0) passed, MAX(r.ran_at) last_run_at
+       FROM runs r LEFT JOIN test_cases c ON c.id = r.case_id
+       GROUP BY c."group" ORDER BY runs DESC`,
+    )
+    .all()
+    .map((row) => ({
+      group: row.grp,
+      runs: row.runs,
+      passed: row.passed,
+      failed: row.runs - row.passed,
+      passRate: Math.round((row.passed / row.runs) * 100),
+      lastRunAt: row.last_run_at,
+    }))
+
   return {
     totalCases,
     totalRuns,
@@ -79,6 +99,7 @@ export function getReportSummary() {
     passRate,
     byCase,
     byEnv,
+    byGroup,
     recentRuns: listRuns({ limit: 10 }),
   }
 }

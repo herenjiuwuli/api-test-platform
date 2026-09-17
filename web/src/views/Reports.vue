@@ -50,6 +50,29 @@
     </el-card>
 
     <el-card class="sec" shadow="never">
+      <template #header>
+        <span>🏷️ 按业务分组汇总</span>
+        <span class="head-hint">用例打了分组标签后，按主题看通过率 —— 一眼看出「附件全周期」这组最近是不是在红</span>
+      </template>
+      <el-table :data="summary.byGroup" border size="small" v-loading="loading">
+        <el-table-column prop="group" label="分组" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="runs" label="执行" width="70" />
+        <el-table-column label="通过/失败" width="120">
+          <template #default="{ row }">
+            <span class="pass-text">{{ row.passed }}</span> / <span class="fail-text">{{ row.failed }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="通过率" width="140">
+          <template #default="{ row }">
+            <el-progress :percentage="row.passRate" :stroke-width="10" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="lastRunAt" label="最近运行" width="160" />
+        <template #empty>还没有执行记录——先建用例并运行一次</template>
+      </el-table>
+    </el-card>
+
+    <el-card class="sec" shadow="never">
       <template #header>📊 按用例汇总</template>
       <el-table :data="summary.byCase" border size="small" v-loading="loading">
         <el-table-column prop="name" label="用例" min-width="180" show-overflow-tooltip />
@@ -139,7 +162,7 @@ import { api } from '../api'
 const loading = ref(false)
 const schedLoading = ref(false)
 const schedSaving = ref(false)
-const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], byEnv: [], recentRuns: [] })
+const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], byEnv: [], byGroup: [], recentRuns: [] })
 const schedules = ref([])
 const cases = ref([])
 const schedForm = ref({ caseId: null, cron: '' })

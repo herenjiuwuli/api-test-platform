@@ -116,6 +116,7 @@ export function exportSuite() {
         files: c.files,
         expected: c.expected,
         extract: c.extract,
+        group: c.group || '',
         ...(redacted.length ? { redactedHeaders: redacted } : {}),
       }
     })
@@ -264,6 +265,7 @@ function importCases(list, onConflict, result) {
         files: raw.files,
         expected: raw.expected,
         extract: raw.extract,
+        group: raw.group,
       }
       const existing = byName.get(name)
 

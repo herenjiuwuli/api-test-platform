@@ -39,7 +39,9 @@ export const api = {
   updateCase: (id, payload) => http.put(`/api/cases/${id}`, payload).then((r) => r.data),
   deleteCase: (id) => http.delete(`/api/cases/${id}`).then((r) => r.data),
   runCase: (id) => http.post(`/api/cases/${id}/run`).then((r) => r.data),
-  runAll: () => http.post('/api/run-all').then((r) => r.data),
+  // M12：run-all 支持 body 过滤 —— {prefix} 按名前缀 / {group} 按分组标签 / {ids} 显式指定。
+  // 不传或传 {} 则跑全部用例。
+  runAll: (body) => http.post('/api/run-all', body || {}).then((r) => r.data),
   // M9：环境变量集
   listEnvironments: () => http.get('/api/environments').then((r) => r.data),
   createEnvironment: (payload) => http.post('/api/environments', payload).then((r) => r.data),

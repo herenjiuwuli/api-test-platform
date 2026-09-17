@@ -4,6 +4,16 @@
       <el-button type="primary" @click="$router.push('/cases/new')">新建用例</el-button>
       <el-button @click="aiVisible = true">AI 生成用例</el-button>
       <el-button :loading="runAllLoading" @click="onRunAll">全部运行</el-button>
+      <el-button :disabled="!selectedGroup" :loading="runGroupLoading" @click="onRunGroup">运行该分组</el-button>
+      <el-select
+        v-model="selectedGroup"
+        placeholder="按分组筛选"
+        clearable
+        style="width: 180px"
+        @clear="selectedGroup = ''"
+      >
+        <el-option v-for="g in groupOptions" :key="g" :label="g" :value="g" />
+      </el-select>
       <el-button @click="load">刷新</el-button>
       <div class="toolbar-right">
         <el-button :loading="exporting" @click="onExport">导出套件</el-button>
@@ -11,12 +21,18 @@
       </div>
     </div>
 
-    <el-table :data="cases" v-loading="loading" border stripe>
+    <el-table :data="displayCases" v-loading="loading" border stripe>
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="name" label="名称" min-width="200" show-overflow-tooltip />
       <el-table-column label="方法" width="90">
         <template #default="{ row }">
           <el-tag :type="methodTag(row.method)" size="small">{{ row.method }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="分组" width="130">
+        <template #default="{ row }">
+          <el-tag v-if="row.group" size="small" type="info" effect="plain">{{ row.group }}</el-tag>
+          <span v-else class="detail-inline">—</span>
         </template>
       </el-table-column>
       <el-table-column prop="url" label="URL" min-width="240" show-overflow-tooltip />
@@ -65,6 +81,7 @@
             通过 {{ allResult.passed }} / {{ allResult.total }}
           </el-tag>
           <span class="result-meta">失败 {{ allResult.failed }}</span>
+          <span v-if="allFilter" class="result-meta">筛选：{{ allFilter }}</span>
         </div>
         <el-table :data="allResult.results" border size="small" max-height="400">
           <el-table-column prop="name" label="用例" min-width="170" show-overflow-tooltip />
@@ -144,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import AiGenerateDialog from '../components/AiGenerateDialog.vue'
@@ -153,10 +170,21 @@ const cases = ref([])
 const loading = ref(false)
 const runningId = ref(null)
 const runAllLoading = ref(false)
+const runGroupLoading = ref(false)
+// M12：分组筛选。displayCases 是「按选中分组过滤后的列表」（空 = 全部）；
+// groupOptions 从当前用例里抽出去重的非空分组，供下拉用。
+const selectedGroup = ref('')
+const groupOptions = computed(() =>
+  [...new Set(cases.value.map((c) => c.group).filter(Boolean))].sort(),
+)
+const displayCases = computed(() =>
+  selectedGroup.value ? cases.value.filter((c) => c.group === selectedGroup.value) : cases.value,
+)
 const resultVisible = ref(false)
 const lastResult = ref(null)
 const allVisible = ref(false)
 const allResult = ref(null)
+const allFilter = ref('')
 const aiVisible = ref(false)
 // M11：套件导出 / 导入
 const exporting = ref(false)
@@ -200,12 +228,30 @@ async function onRun(row) {
 async function onRunAll() {
   runAllLoading.value = true
   try {
+    allFilter.value = '全部'
     allResult.value = await api.runAll()
     allVisible.value = true
   } catch (e) {
     ElMessage.error('运行失败：' + (e.response?.data?.error || e.message))
   } finally {
     runAllLoading.value = false
+  }
+}
+
+// M12：只跑当前选中的分组。注意：单个分组未必是「自包含链」——
+// 比如 OA「审批引擎」依赖前面登录/建单抽出的 token，单独跑会红。
+// 这按钮的价值是「按主题跑一坨」，分组主要用于组织 + 报告按组看，不是替你切链。
+async function onRunGroup() {
+  if (!selectedGroup.value) return
+  runGroupLoading.value = true
+  try {
+    allFilter.value = '分组：' + selectedGroup.value
+    allResult.value = await api.runAll({ group: selectedGroup.value })
+    allVisible.value = true
+  } catch (e) {
+    ElMessage.error('运行失败：' + (e.response?.data?.error || e.message))
+  } finally {
+    runGroupLoading.value = false
   }
 }
 

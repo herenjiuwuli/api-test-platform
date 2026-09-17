@@ -98,6 +98,12 @@ function migrate(db) {
   addColumn(`ALTER TABLE runs ADD COLUMN env_id INTEGER`)
   addColumn(`ALTER TABLE runs ADD COLUMN env_name TEXT NOT NULL DEFAULT ''`)
   addColumn(`ALTER TABLE runs ADD COLUMN base_url TEXT NOT NULL DEFAULT ''`)
+  // M12：用例分组。一个平台里常挂着多个被测系统的用例（如 OA 的 52 条），
+  // 需要一个「业务语义」的标签把同主题的用例收拢（鉴权 / 审批 / 附件 / 通知…），
+  // 用于列表筛选、按组运行、报告按组看通过率。它和 run-all 的 prefix 过滤互补：
+  // prefix 是按名字前缀切（跑「OA-」这一坨），group 是按语义标签切（跑「审批引擎」这一主题）。
+  // 注意 group 是 SQL 保留字，建列 / 引用一律加双引号。
+  addColumn(`ALTER TABLE test_cases ADD COLUMN "group" TEXT NOT NULL DEFAULT ''`)
 }
 
 export function closeDb() {

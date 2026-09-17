@@ -114,7 +114,8 @@ export function buildApp() {
     }
   })
 
-  app.get('/api/cases', async () => listCases())
+  // ?group= 可选：只返回该分组下的用例（M12）。不传或为空则返回全部。
+  app.get('/api/cases', async (req) => listCases(req.query.group))
 
   // M8：前端要渲染「请求体类型」和「文件夹具」的选择器。
   // 这里把可选值吐给前端，而不是在前端再抄一份 —— 夹具只有一份事实来源（src/fixtures.js）。
@@ -166,13 +167,18 @@ export function buildApp() {
   app.post('/api/run-all', async (req) => {
     // 用例链按「创建顺序」跑（id 升序）：登录抽 token → 后面带 token 的用例才能用上。
     // listCases() 是「新的在前」（给界面看的），这里必须翻过来，否则链会被打乱。
-    // 可选 body {prefix:'OA-'} 只跑一组用例（用例分组的最小实现）：
-    //   一个平台里常常挂着多个被测系统的用例，跑全部会把别人的失败算进来。
-    const { prefix, ids } = req.body || {}
+    // 两种「只跑一部分」的过滤（M12 起两者并存）：
+    //   - prefix:'OA-'  按名字前缀切（跑「OA-」这一坨，跨语义）
+    //   - group:'审批引擎' 按语义分组标签切（跑「审批引擎」这一主题）
+    //   - ids:[1,2,3]    显式指定
+    // 注意：单个 group 不一定是「自包含链」—— 比如 OA 的「审批引擎」依赖前面登录/建单抽出的变量，
+    //   单独跑会红。这是链式设计的固有特性，分组主要用于「组织 + 报告按组看」，不是替你切链。
+    const { prefix, ids, group } = req.body || {}
     let cases = listCases()
       .slice()
       .sort((a, b) => a.id - b.id)
     if (prefix) cases = cases.filter((c) => String(c.name).startsWith(prefix))
+    if (group) cases = cases.filter((c) => (c.group || '') === group)
     if (Array.isArray(ids) && ids.length) {
       const want = new Set(ids.map(Number))
       cases = cases.filter((c) => want.has(c.id))
@@ -183,7 +189,7 @@ export function buildApp() {
       total: cases.length,
       passed,
       failed: cases.length - passed,
-      filter: prefix || (ids?.length ? 'ids' : null),
+      filter: prefix || group || (ids?.length ? 'ids' : null),
       // 整轮用的哪个环境 —— 空结果（没有匹配的用例）时也要说得出来，所以从当前环境直接取
       env: envSnapshot(getActiveEnvironment()),
       results,

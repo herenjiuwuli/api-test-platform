@@ -505,6 +505,25 @@ const cases = [
   },
 ]
 
+// ── M12：按 OA-NN 编号给每条用例打上业务分组标签 ───────────────────────
+// 分组用于平台的「列表筛选 / 按组运行 / 报告按组看通过率」。一个平台里常挂多个被测系统的用例，
+// 这里把 OA 这 52 条按业务主题收成 8 组（A 入口鉴权 → H 站内通知）。
+// 用编号映射而非按数组下标切，是因为各段条数以后可能微调，而「OA-18 属于审批引擎」这条事实不会变。
+function groupOf(name) {
+  const m = String(name).match(/OA-(\d+)/)
+  if (!m) return ''
+  const n = Number(m[1])
+  if (n <= 4) return '入口鉴权'
+  if (n <= 11) return '登录权限'
+  if (n <= 15) return '建单提交'
+  if (n <= 24) return '审批引擎'
+  if (n <= 29) return '登出令牌'
+  if (n <= 36) return '附件边界'
+  if (n <= 44) return '附件全周期'
+  return '站内通知'
+}
+for (const c of cases) c.group = groupOf(c.name)
+
 // —— 幂等写入：先清掉上一版 OA- 用例（连带定时任务），再按顺序插入 ——
 const db = getDb()
 db.prepare(`DELETE FROM schedules WHERE case_id IN (SELECT id FROM test_cases WHERE name LIKE ?)`).run(`${TAG}%`)
@@ -522,6 +541,7 @@ for (const c of cases) createCase(c)
 
 console.log(`[oa-suite] 当前环境「${ENV_NAME}」→ ${env.baseUrl}（用例里写 {{base}}，换环境不用改用例）`)
 console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条）`)
+console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
 console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态 / ${TAG}45 引擎挂钩发通知 / ${TAG}47 通知 round 快照 / ${TAG}51 通知写路径 404`)

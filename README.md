@@ -26,19 +26,19 @@
 - 执行引擎 `runCase`：发请求 → 按 expected 断言 → 返回 `{pass, status, durationMs, detail, bodyPreview}`
 - **JSONPath 断言（自写求值器，未用第三方库）**：`expected.jsonChecks` = `[{path, op, value}]`，支持 `$.a.b / $.arr[0] / $.arr[*] / .length` 路径 + `eq / ne / gt / gte / lt / lte / contains / exists` 操作符
 - **定时任务（node-cron）**：用例 + cron 表达式 → 到点自动执行并落执行记录；可启停/删除，重启自动恢复
-- **报告**：`/api/reports/summary` 聚合（总用例/总执行/通过率/按用例统计/最近记录）
+- **报告**：`/api/reports/summary` 聚合（总用例/总执行/通过率/按用例统计/**按分组统计**/按运行环境统计/最近记录）
 - HTTP 接口：
   - `GET /health`
   - `POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`、`POST /api/auth/change-password`
   - `/*`（生产）托管前端 `web/dist`（仅构建后存在时注册，SPA 路由回退 index.html）
   - `GET /api/cases`、`POST /api/cases`、`GET /api/cases/:id`、`PUT /api/cases/:id`、`DELETE /api/cases/:id`
-  - `POST /api/cases/:id/run`（单条运行）、`POST /api/run-all`（全部运行汇总）
+  - `POST /api/cases/:id/run`（单条运行）、`POST /api/run-all`（全部运行汇总；支持 body 过滤：`prefix` 按名前缀 / `group` 按分组标签 / `ids` 显式指定）
   - `GET /api/meta/body-options`（请求体类型 + 内置夹具清单，M8）
   - `GET /api/environments`、`POST /api/environments`、`PUT /api/environments/active`、`PUT /api/environments/:id`、`DELETE /api/environments/:id`（环境变量集，M9）
   - `GET /api/suite/export`（导成套件 JSON，直接下载）、`POST /api/suite/import?onConflict=rename|overwrite|skip`（导入套件，M11）
   - `GET /api/schedules`、`POST /api/schedules`、`PUT /api/schedules/:id`、`DELETE /api/schedules/:id`
   - `GET /api/runs?caseId=&limit=`、`GET /api/reports/summary`
-- 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行/**套件导出·导入**）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/**按运行环境汇总**/执行明细/**定时任务管理**）
+- 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行/**按分组筛选·运行**/套件导出·导入 + 分组标签）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**/**分组**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/**按分组汇总**/按运行环境汇总/执行明细/**定时任务管理**）
 - 数据持久化：用例 `test_cases`、执行记录 `runs`、定时任务 `schedules`、用户 `users`
 
 ## 快速开始
@@ -60,14 +60,14 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 132 例全绿（全离线）
+npm test           # vitest 139 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
 测穿配套的被测系统（闭环）：
 
 ```bash
-npm run seed:oa    # 写入 44 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面 + 附件全生命周期）
+npm run seed:oa    # 写入 52 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面 + 附件全生命周期 + 站内通知）
                    # 同时定义并选中「当前环境」（地址取 OA_BASE，默认 http://127.0.0.1:3200）
 npm run test:oa    # 让平台去打当前环境指向的 office-oa（会先把环境打印出来）
                    # 等价于 POST /api/run-all {"prefix":"OA-"}；任一条失败即以非 0 退出，可挂 CI
@@ -206,7 +206,7 @@ M7 之后平台里有了一条 44 条的 office-oa 用例链，但它是**长在
 还有两条健壮性约定：
 
 - **坏文件 400，坏条目继续**：`kind` 不对 / 版本过高 → 400 说清原因；文件里单条用例缺 `url` →
-  记进 `result.failed` 并继续导入其余的。一个 43/44 的文件不该因为第 44 条被整份打回。
+  记进 `result.failed` 并继续导入其余的。一个 51/52 的文件不该因为第 52 条被整份打回。
 - **导入结果带 `warnings`**：脱敏留下的空凭据头会被丢掉并明确告知（「导入后请补上真实凭据」），
   而不是写一个空的 `Authorization` 进库 —— 那只会让每个请求在远端吃一个莫名其妙的 401。
 
@@ -214,6 +214,26 @@ M7 之后平台里有了一条 44 条的 office-oa 用例链，但它是**长在
 真机层用 CDP 的 `DOM.setFileInputFiles` 把套件文件**真的塞进 file input**，断言弹窗里读出
 「1 条用例、1 个环境」的预览、三种策略可选、点「开始导入」后结果区真的出现「导入完成：新增 2」。
 跑完自动清场（`M11UI-` 前缀命名空间），库里不留一条脏数据。
+
+## 用例分组（M12）
+
+一个平台里常挂多个被测系统的用例（如 OA 那 52 条），光靠「列表一拉到底」很难管理。`group` 字段给每条用例打一个**业务语义标签**（入口鉴权 / 登录权限 / 审批引擎 / 附件全周期 / 站内通知…），三处受益：
+
+- **列表筛选**：用例列表页可按分组下拉过滤，不必一屏滚完；每条用例带分组标签。
+- **按组运行**：`POST /api/run-all {"group":"审批引擎"}` 只跑该主题 —— 和 `prefix`（按名前缀切）、`ids`（显式指定）并存。
+  - ⚠️ 单个 group 不一定是「自包含链」：OA 的「审批引擎」依赖前面登录/建单抽出的 token，单独跑会红。分组主要用于**组织 + 报告按组看**，不是替你切链。
+- **报告按组看**：`GET /api/reports/summary` 新增 `byGroup`（与既有 `byEnv` 同理：分组是语义标签，历史不被改写）。
+
+落点：`test_cases` 加 `"group"` 列（DEFAULT ''，`group` 是 SQL 保留字故双引号引用）；`createCase` 收 group、`listCases(group?)` 可按组查、`updateCase` 可改、`normalize` 还原；套件导出/导入**保留 group**（M11 协同）；编辑器可填分组；列表页有分组标签 + 筛选 + 「运行该分组」按钮。
+
+实际验证：`node scripts/m12-group-ui-check.mjs`（24 条 = 接口层 12 + 真机层 12），vitest **139 例**（含 7 例分组专用）。
+真机层用 CDP **真的在下拉里选中分组**，断言「列表真的只剩这一组」（结果里不含任何 `OA-` 行）、
+未选分组时「运行该分组」是禁用的（避免误点成「跑全部」）、点下去后汇总弹窗写明「筛选：分组：X」
+且结果表条数 = 组内条数。接口层的负向对照是「`run-all` 传一个查无此组 → `total` 必须是 0」：
+如果过滤被忽略，这里会变成「把库里几十条全跑一遍」，`total` 立刻暴露。
+收尾除了删用例，还要删掉本次跑出来的**执行记录** —— `deleteCase` 不级联删 `runs`，
+只删用例的话，报告里会永远多出一个指向已删除用例的 `用例#id`。
+OA 套件 52 条按 8 组打标后跑闭环仍为 **52/52**。
 
 ## 里程碑路线
 
@@ -230,6 +250,7 @@ M7 之后平台里有了一条 44 条的 office-oa 用例链，但它是**长在
 | **M9** | **环境变量集**：用例写 `{{base}}` 而不是写死地址 + 页头当前环境徽标 + 环境级默认请求头 → 换环境不用改用例 | ✅ 已完成（106 例 + OA 44 条） |
 | **M10** | **执行记录记住「这次跑在哪个环境」**：`runs` 存环境的**快照**（名字 + 地址）而不只是外键 → 改地址不会改写历史；报告新增「按运行环境汇总」 | ✅ 已完成（113 例 + OA 44 条） |
 | **M11** | **套件导出 / 导入**：把「用例 + 环境」打成一个能带走的 JSON（**敏感头的值脱敏、顺序即串链顺序、不带本地 id**），导入支持 rename / overwrite / skip 三种冲突策略，坏条目不影响其余 | ✅ 已完成（132 例 + OA 44 条） |
+| **M12** | **用例分组**：`group` 业务标签（列表筛选 / 按组运行 / 报告按组汇总），套件导入导出保留分组，编辑器可填分组 | ✅ 已完成（139 例 + OA 52 条） |
 
 > 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 > 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
@@ -253,13 +274,14 @@ src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断�
 src/schedules.js  定时任务 CRUD（cron 校验）
 src/scheduler.js  node-cron 调度器（注册/启停/恢复）
 src/reports.js    执行记录查询 + 报告聚合
-seed-oa-suite.mjs office-oa 用例套件（44 条，用例链 + 附件边界面 + 附件全生命周期；并定义当前环境）— npm run seed:oa
+seed-oa-suite.mjs office-oa 用例套件（52 条 + 按 A–H 段打 `group` 分组，用例链 + 附件边界面 + 附件全生命周期 + 站内通知；并定义当前环境）— npm run seed:oa
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
 scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
 scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js  共 132 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js  共 139 例，全离线
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
 scripts/m11-suite-ui-check.mjs   套件导出/导入验证（接口层脱敏 + 真机层真的选文件导入；跑完自动清场）
+scripts/m12-group-ui-check.mjs   用例分组验证（接口层 + 真机层选分组/按组运行；收尾连执行记录一起清，报告不留孤儿）
 scripts/lib/cdp.mjs              真机检查的公共底座（起 Chrome / CDP 客户端 / 页面助手 / 临时账号 token）
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
 web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端同源托管）

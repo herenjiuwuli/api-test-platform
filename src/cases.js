@@ -2,6 +2,7 @@
 // 字段：name / method / url / headers / body / bodyType（M8）/ files（M8）
 //      / expected(status, contains, maxTimeMs, jsonChecks)
 //      / extract（M4：从本用例响应里按 JSONPath 抽变量，供链上后面的用例用）
+//      / group（M12：业务分组标签，如「审批引擎」「站内通知」，用于筛选/按组跑/报告）
 import { getDb } from './db.js'
 import { normalizeBodyType } from './bodyTypes.js'
 
@@ -11,8 +12,8 @@ export function createCase(input = {}) {
   if (!name) throw new Error('用例 name 必填')
   if (!input.url) throw new Error('用例 url 必填')
   const stmt = db.prepare(
-    `INSERT INTO test_cases (name, method, url, headers_json, body_json, body_type, files_json, expected_json, extract_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO test_cases (name, method, url, headers_json, body_json, body_type, files_json, expected_json, extract_json, "group")
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const info = stmt.run(
     name,
@@ -24,12 +25,19 @@ export function createCase(input = {}) {
     JSON.stringify(normalizeFiles(input.files)),
     JSON.stringify(input.expected || {}),
     JSON.stringify(normalizeExtract(input.extract)),
+    String(input.group || '').trim(),
   )
   return getCase(info.lastInsertRowid)
 }
 
-export function listCases() {
-  return getDb().prepare(`SELECT * FROM test_cases ORDER BY id DESC`).all().map(normalize)
+// 可选 group 参数：传了（非空字符串）就只返回该分组下的用例。
+// 列表页用它在前端筛选用例；run-all 用它「按主题跑一组」。
+export function listCases(group) {
+  const db = getDb()
+  if (group) {
+    return db.prepare(`SELECT * FROM test_cases WHERE "group" = ? ORDER BY id DESC`).all(String(group)).map(normalize)
+  }
+  return db.prepare(`SELECT * FROM test_cases ORDER BY id DESC`).all().map(normalize)
 }
 
 export function getCase(id) {
@@ -51,12 +59,13 @@ export function updateCase(id, input = {}) {
     files: input.files !== undefined ? normalizeFiles(input.files) : existing.files,
     expected: input.expected !== undefined ? input.expected : existing.expected,
     extract: input.extract !== undefined ? normalizeExtract(input.extract) : existing.extract,
+    group: input.group !== undefined ? String(input.group).trim() : existing.group,
   }
   if (!merged.name) throw new Error('用例 name 必填')
   if (!merged.url) throw new Error('用例 url 必填')
   getDb()
     .prepare(
-      `UPDATE test_cases SET name=?, method=?, url=?, headers_json=?, body_json=?, body_type=?, files_json=?, expected_json=?, extract_json=? WHERE id=?`,
+      `UPDATE test_cases SET name=?, method=?, url=?, headers_json=?, body_json=?, body_type=?, files_json=?, expected_json=?, extract_json=?, "group"=? WHERE id=?`,
     )
     .run(
       merged.name,
@@ -68,6 +77,7 @@ export function updateCase(id, input = {}) {
       JSON.stringify(normalizeFiles(merged.files)),
       JSON.stringify(merged.expected || {}),
       JSON.stringify(normalizeExtract(merged.extract)),
+      merged.group,
       id,
     )
   return getCase(id)
@@ -114,6 +124,7 @@ function normalize(row) {
     files: safeParse(row.files_json, []),
     expected: safeParse(row.expected_json, {}),
     extract: safeParse(row.extract_json, []),
+    group: row.group || '',
     createdAt: row.created_at,
   }
 }

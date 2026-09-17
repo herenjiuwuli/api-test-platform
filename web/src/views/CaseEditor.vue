@@ -25,6 +25,11 @@
         </div>
       </el-form-item>
 
+      <el-form-item label="分组">
+        <el-input v-model="form.group" placeholder="业务分组标签，如 鉴权 / 审批引擎 / 附件全周期（可选，用于筛选与报告）" />
+        <p class="json-hint">同主题的用例打同一个标签，列表可按组筛选、报告可按组看通过率。留空 = 未分组。</p>
+      </el-form-item>
+
       <el-form-item label="请求头">
         <div v-for="(h, i) in headersRows" :key="i" class="kv-row">
           <el-input v-model="h.key" placeholder="Header 名" style="width: 220px" />
@@ -137,7 +142,7 @@ const bodyTypeHint = computed(() => HINTS[bodyType.value] || HINTS.json)
 const bodyPlaceholder = computed(() => PLACEHOLDERS[bodyType.value] || PLACEHOLDERS.json)
 const bodyLabel = computed(() => (bodyType.value === 'form-data' ? '文本字段' : '请求体'))
 
-const form = ref({ name: '', method: 'GET', url: '' })
+const form = ref({ name: '', method: 'GET', url: '', group: '' })
 const headersRows = ref([{ key: '', value: '' }])
 const jsonChecksRows = ref([{ path: '', op: 'eq', value: '' }])
 const bodyText = ref('')
@@ -169,7 +174,7 @@ function rowsFromHeaders(headers) {
 
 /** 把表单恢复成「新建」的初始状态 —— 换用例时必须先清，否则会残留上一条的内容 */
 function resetForm() {
-  form.value = { name: '', method: 'GET', url: '' }
+  form.value = { name: '', method: 'GET', url: '', group: '' }
   headersRows.value = [{ key: '', value: '' }]
   jsonChecksRows.value = [{ path: '', op: 'eq', value: '' }]
   bodyText.value = ''
@@ -194,7 +199,7 @@ async function load() {
   resetForm()
   if (!isEdit.value) return
   const c = await api.getCase(id.value)
-  form.value = { name: c.name, method: c.method, url: c.url }
+  form.value = { name: c.name, method: c.method, url: c.url, group: c.group || '' }
   headersRows.value = rowsFromHeaders(c.headers)
   bodyType.value = c.bodyType || 'json'
   bodyText.value =
@@ -229,6 +234,7 @@ function buildPayload() {
     name: form.value.name.trim(),
     method: form.value.method,
     url: form.value.url.trim(),
+    group: form.value.group.trim(),
     headers: headersFromRows(headersRows.value),
     bodyType: bodyType.value,
     expected: exp,
