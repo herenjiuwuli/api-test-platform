@@ -46,6 +46,10 @@ export const api = {
   updateEnvironment: (id, payload) => http.put(`/api/environments/${id}`, payload).then((r) => r.data),
   deleteEnvironment: (id) => http.delete(`/api/environments/${id}`).then((r) => r.data),
   setActiveEnvironment: (id) => http.put('/api/environments/active', { id }).then((r) => r.data),
+  // M11：套件导出 / 导入
+  exportSuite: () => http.get('/api/suite/export').then((r) => r.data),
+  importSuite: (payload, onConflict) =>
+    http.post('/api/suite/import', payload, { params: { onConflict } }).then((r) => r.data),
   // M3：定时任务 + 报告
   listRuns: (params) => http.get('/api/runs', { params }).then((r) => r.data),
   getReportSummary: () => http.get('/api/reports/summary').then((r) => r.data),

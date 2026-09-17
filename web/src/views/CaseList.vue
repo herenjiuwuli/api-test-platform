@@ -5,6 +5,10 @@
       <el-button @click="aiVisible = true">AI 生成用例</el-button>
       <el-button :loading="runAllLoading" @click="onRunAll">全部运行</el-button>
       <el-button @click="load">刷新</el-button>
+      <div class="toolbar-right">
+        <el-button :loading="exporting" @click="onExport">导出套件</el-button>
+        <el-button @click="openImport">导入套件</el-button>
+      </div>
     </div>
 
     <el-table :data="cases" v-loading="loading" border stripe>
@@ -80,6 +84,60 @@
       </template>
     </el-dialog>
 
+    <!-- 导入套件（M11） -->
+    <el-dialog v-model="importVisible" title="导入套件" width="640" @closed="resetImport">
+      <input ref="fileInput" type="file" accept=".json,application/json" class="hidden-file" @change="onFilePick" />
+
+      <div class="imp-step">
+        <el-button @click="fileInput && fileInput.click()">选择套件文件（.json）</el-button>
+        <span v-if="importFile" class="imp-file">{{ importFile.name }}</span>
+        <span v-else class="imp-hint">套件里含用例 + 环境；敏感请求头的值已脱敏，导入后需自己补</span>
+      </div>
+
+      <template v-if="importPreview">
+        <div class="imp-preview">
+          文件里有 <b>{{ importPreview.cases }}</b> 条用例、<b>{{ importPreview.environments }}</b> 个环境
+          <span class="imp-hint">（导出时间 {{ importPreview.exportedAt.slice(0, 19).replace('T', ' ') }}）</span>
+        </div>
+
+        <div class="imp-label">碰到重名怎么办？</div>
+        <el-radio-group v-model="onConflict" class="imp-radios">
+          <el-radio value="rename">两个都留 —— 新的加「(2)」后缀</el-radio>
+          <el-radio value="overwrite">用文件里的覆盖同名的</el-radio>
+          <el-radio value="skip">同名的一律不动</el-radio>
+        </el-radio-group>
+      </template>
+
+      <el-alert v-if="importError" type="error" :title="importError" :closable="false" class="imp-alert" />
+
+      <template v-if="importResult">
+        <el-alert
+          type="success"
+          :title="`导入完成：新增 ${importResult.created} · 更新 ${importResult.updated} · 跳过 ${importResult.skipped}`"
+          :closable="false"
+          class="imp-alert"
+        />
+        <ul v-if="(importResult.warnings || []).length" class="imp-list">
+          <li v-for="(w, i) in importResult.warnings" :key="'w' + i">⚠ {{ w }}</li>
+        </ul>
+        <ul v-if="(importResult.failed || []).length" class="imp-list imp-list-bad">
+          <li v-for="(f, i) in importResult.failed" :key="'f' + i">✗ {{ f.name }}：{{ f.reason }}</li>
+        </ul>
+      </template>
+
+      <template #footer>
+        <el-button @click="importVisible = false">关闭</el-button>
+        <el-button
+          type="primary"
+          :disabled="!importPreview || !!importResult"
+          :loading="importing"
+          @click="onImport"
+        >
+          开始导入
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- AI 生成用例 -->
     <AiGenerateDialog v-model="aiVisible" @saved="load" />
   </div>
@@ -100,6 +158,17 @@ const lastResult = ref(null)
 const allVisible = ref(false)
 const allResult = ref(null)
 const aiVisible = ref(false)
+// M11：套件导出 / 导入
+const exporting = ref(false)
+const importVisible = ref(false)
+const importing = ref(false)
+const importFile = ref(null)
+const importPreview = ref(null)
+const importPayload = ref(null)
+const importResult = ref(null)
+const importError = ref('')
+const onConflict = ref('rename')
+const fileInput = ref(null)
 
 function methodTag(m) {
   return { GET: 'success', POST: 'primary', PUT: 'warning', DELETE: 'danger' }[m] || 'info'
@@ -151,11 +220,105 @@ async function onDelete(row) {
   load()
 }
 
+// M11：导出 —— 走 axios（要带 Authorization），拿到 JSON 后在前端落成文件
+async function onExport() {
+  exporting.value = true
+  try {
+    const suite = await api.exportSuite()
+    const blob = new Blob([JSON.stringify(suite, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `api-test-suite-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    ElMessage.success(`已导出 ${suite.counts.cases} 条用例、${suite.counts.environments} 个环境`)
+  } catch (e) {
+    ElMessage.error('导出失败：' + (e.response?.data?.error || e.message))
+  } finally {
+    exporting.value = false
+  }
+}
+
+function openImport() {
+  resetImport()
+  importVisible.value = true
+}
+
+function resetImport() {
+  importFile.value = null
+  importPreview.value = null
+  importPayload.value = null
+  importResult.value = null
+  importError.value = ''
+  onConflict.value = 'rename'
+  if (fileInput.value) fileInput.value.value = ''
+}
+
+// 选文件时先做一次「是不是本平台导出的」预检 —— 把明显错的文件挡在选择阶段，
+// 别让人点了「开始导入」才拿到一句 400。后端仍然会独立校验一次（这里只是早点告知）。
+async function onFilePick(ev) {
+  const file = (ev.target.files || [])[0]
+  if (!file) return
+  importFile.value = file
+  importResult.value = null
+  importError.value = ''
+  try {
+    const text = await file.text()
+    let data = null
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error('这个文件不是合法 JSON')
+    }
+    if (!data || data.kind !== 'api-test-platform-suite') {
+      throw new Error('这不像本平台导出的套件文件（缺少 kind 标记）')
+    }
+    importPayload.value = data
+    importPreview.value = {
+      cases: Array.isArray(data.cases) ? data.cases.length : 0,
+      environments: Array.isArray(data.environments) ? data.environments.length : 0,
+      exportedAt: String(data.exportedAt || ''),
+    }
+  } catch (e) {
+    importPreview.value = null
+    importPayload.value = null
+    importError.value = e.message
+  }
+}
+
+async function onImport() {
+  if (!importPayload.value) return
+  importing.value = true
+  importError.value = ''
+  try {
+    importResult.value = await api.importSuite(importPayload.value, onConflict.value)
+    load()
+  } catch (e) {
+    importError.value = e.response?.data?.error || e.message
+  } finally {
+    importing.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
 <style scoped>
 .toolbar { margin-bottom: 14px; display: flex; gap: 10px; }
+.toolbar-right { margin-left: auto; display: flex; gap: 10px; }
+.hidden-file { display: none; }
+.imp-step { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.imp-file { font-size: 13px; color: #303133; }
+.imp-hint { font-size: 12px; color: #909399; }
+.imp-preview { font-size: 13px; margin-bottom: 14px; }
+.imp-label { font-size: 13px; color: #606266; margin-bottom: 8px; }
+.imp-radios { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 12px; }
+.imp-alert { margin-bottom: 10px; }
+.imp-list { margin: 0 0 10px; padding-left: 18px; font-size: 13px; color: #e6a23c; }
+.imp-list-bad { color: #f56c6c; }
 .result-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
 .result-meta { font-size: 13px; color: #606266; }
 .result-alert { margin-bottom: 10px; }

@@ -19,6 +19,8 @@
 //   PUT  /api/environments/active 切换当前环境 {id}（id 传 null = 取消当前环境）
 //   PUT  /api/environments/:id    更新环境（部分更新）
 //   DELETE /api/environments/:id  删除环境（删的是当前环境则当前环境清空）
+//   GET  /api/suite/export        导出套件（用例 + 环境，敏感头已脱敏，直接下载成 JSON）
+//   POST /api/suite/import        导入套件（body = 套件文件；?onConflict=skip|overwrite|rename）
 //   POST /api/auth/register       注册（免鉴权）
 //   POST /api/auth/login          登录（免鉴权）
 //   GET  /api/auth/me             当前用户
@@ -43,6 +45,7 @@ import {
   updateEnvironment,
 } from './src/environments.js'
 import { envSnapshot, runCase, runAll } from './src/runner.js'
+import { exportSuite, importSuite } from './src/suite.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
@@ -229,6 +232,26 @@ export function buildApp() {
     return r
   })
 
+  // —— 套件导出 / 导入（M11）——
+  // 导出：把「用例 + 环境」打成一个能带走的 JSON（敏感头的值已脱敏，见 src/suite.js）。
+  // 用例按创建顺序输出 —— 那就是串链顺序，乱了链条会静默断。
+  app.get('/api/suite/export', async (req, reply) => {
+    const suite = exportSuite()
+    const stamp = new Date().toISOString().slice(0, 10)
+    reply.header('Content-Type', 'application/json; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="api-test-suite-${stamp}.json"`)
+    return suite
+  })
+
+  // 导入：请求体就是套件文件本身。冲突策略走 ?onConflict=（skip | overwrite | rename，默认 rename）。
+  // 坏文件 400；文件里的**坏条目**不 400 —— 进 result.failed 并继续导入其余的。
+  app.post('/api/suite/import', async (req, reply) => {
+    const onConflict = req.query?.onConflict ?? req.body?.onConflict
+    const result = importSuite(req.body, { onConflict })
+    if (!result.ok) return reply.code(400).send({ error: result.error })
+    return reply.code(201).send(result)
+  })
+
   // —— 定时任务（M3）——
   app.get('/api/schedules', async () => listSchedules())
 
@@ -333,7 +356,7 @@ if (isDirectRun) {
     initDefaultUser()
     // 直接运行时启动定时调度器（测试里不启动，保证隔离）
     startScheduler()
-    console.log(`✅ API 测试平台 M10 已启动：http://localhost:${port}（定时任务已恢复）`)
+    console.log(`✅ API 测试平台 M11 已启动：http://localhost:${port}（定时任务已恢复）`)
   }).catch((e) => {
     console.error('启动失败：', e.message)
     process.exit(1)

@@ -35,9 +35,10 @@
   - `POST /api/cases/:id/run`（单条运行）、`POST /api/run-all`（全部运行汇总）
   - `GET /api/meta/body-options`（请求体类型 + 内置夹具清单，M8）
   - `GET /api/environments`、`POST /api/environments`、`PUT /api/environments/active`、`PUT /api/environments/:id`、`DELETE /api/environments/:id`（环境变量集，M9）
+  - `GET /api/suite/export`（导成套件 JSON，直接下载）、`POST /api/suite/import?onConflict=rename|overwrite|skip`（导入套件，M11）
   - `GET /api/schedules`、`POST /api/schedules`、`PUT /api/schedules/:id`、`DELETE /api/schedules/:id`
   - `GET /api/runs?caseId=&limit=`、`GET /api/reports/summary`
-- 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/执行明细/**定时任务管理**）
+- 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行/**套件导出·导入**）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/**按运行环境汇总**/执行明细/**定时任务管理**）
 - 数据持久化：用例 `test_cases`、执行记录 `runs`、定时任务 `schedules`、用户 `users`
 
 ## 快速开始
@@ -59,7 +60,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 113 例全绿（全离线）
+npm test           # vitest 132 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
@@ -168,6 +169,52 @@ M9 把「打谁」变成了**可变的**，于是立刻冒出个新问题：报�
 - 实际验证：`npm run seed:oa && npm run test:oa` 之后跑 `node scripts/m10-report-env-check.mjs`，
   报告里能读出「office-oa（本地）」→ `http://127.0.0.1:3200`、执行 44 次、通过率 100%。
 
+## 套件导出 / 导入（M11）
+
+M7 之后平台里有了一条 44 条的 office-oa 用例链，但它是**长在这个库里的** —— 想发给别人、想换台机器跑、
+想在 CI 上用，都只能重新 seed 一遍。**测试资产要是带不走，它就只是本地状态，不是资产。**
+
+`GET /api/suite/export` 把「用例 + 环境」打成一个 JSON 文件，`POST /api/suite/import` 把它吃回去：
+
+```json
+{
+  "kind": "api-test-platform-suite",
+  "version": 1,
+  "exportedAt": "2026-09-17T08:34:50.000Z",
+  "counts": { "environments": 1, "cases": 44, "fixtureBase64Chars": 0 },
+  "environments": [{ "name": "office-oa（本地）", "baseUrl": "http://127.0.0.1:3200", "headers": {}, "vars": {} }],
+  "cases": [{ "name": "OA-01 登录", "method": "POST", "url": "{{base}}/api/auth/login" }]
+}
+```
+
+三个要想清楚的点：
+
+| 设计 | 为什么这么做 |
+|---|---|
+| **不带 id** | id 是本地自增的，换一个库就指向别的东西；带过去只会让「按顺序串链」错位 |
+| **用例顺序 = 串链顺序** | 用例链靠「前一条抽变量、后一条用变量」串起来（M7）。导出时显式按 id **升序**排 —— `listCases()` 本来是**倒序**的（列表页要新在前），直接导出会让导入后的链条**静默断掉** |
+| **敏感请求头脱敏** | 导出文件天生是要被分享的（发同事 / 进仓库 / 贴 issue），`Authorization`、`Cookie` 这类头的**值**抹成空串、**键名保留** + 在文件里列出被抹的头名。但判据是「键名敏感 **且** 值是字面量」——`X-Token: {{token}}` 是**变量引用**，抹了只会断链、并不会更安全 |
+
+导入的冲突策略由 `?onConflict=` 决定，默认 **`rename`**：
+
+| 策略 | 行为 |
+|---|---|
+| `rename`（默认） | 两个都留，新的加 `(2)` 后缀 —— 既不悄悄丢你的，也不悄悄盖你的 |
+| `overwrite` | 用文件里的覆盖同名的 |
+| `skip` | 同名的一律不动 |
+
+还有两条健壮性约定：
+
+- **坏文件 400，坏条目继续**：`kind` 不对 / 版本过高 → 400 说清原因；文件里单条用例缺 `url` →
+  记进 `result.failed` 并继续导入其余的。一个 43/44 的文件不该因为第 44 条被整份打回。
+- **导入结果带 `warnings`**：脱敏留下的空凭据头会被丢掉并明确告知（「导入后请补上真实凭据」），
+  而不是写一个空的 `Authorization` 进库 —— 那只会让每个请求在远端吃一个莫名其妙的 401。
+
+实际验证：`node scripts/m11-suite-ui-check.mjs`（19 条 = 接口层 11 + 真机层 8）。
+真机层用 CDP 的 `DOM.setFileInputFiles` 把套件文件**真的塞进 file input**，断言弹窗里读出
+「1 条用例、1 个环境」的预览、三种策略可选、点「开始导入」后结果区真的出现「导入完成：新增 2」。
+跑完自动清场（`M11UI-` 前缀命名空间），库里不留一条脏数据。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
@@ -182,6 +229,7 @@ M9 把「打谁」变成了**可变的**，于是立刻冒出个新问题：报�
 | **M8** | **请求体类型（json / raw / form-data）+ 文件夹具上传**：手搓 multipart（不引库）+ 内置夹具 + 编辑器支持 → 附件全生命周期也进平台（OA 44/44） | ✅ 已完成（85 例 + OA 44 条） |
 | **M9** | **环境变量集**：用例写 `{{base}}` 而不是写死地址 + 页头当前环境徽标 + 环境级默认请求头 → 换环境不用改用例 | ✅ 已完成（106 例 + OA 44 条） |
 | **M10** | **执行记录记住「这次跑在哪个环境」**：`runs` 存环境的**快照**（名字 + 地址）而不只是外键 → 改地址不会改写历史；报告新增「按运行环境汇总」 | ✅ 已完成（113 例 + OA 44 条） |
+| **M11** | **套件导出 / 导入**：把「用例 + 环境」打成一个能带走的 JSON（**敏感头的值脱敏、顺序即串链顺序、不带本地 id**），导入支持 rename / overwrite / skip 三种冲突策略，坏条目不影响其余 | ✅ 已完成（132 例 + OA 44 条） |
 
 > 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
 > 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
@@ -200,6 +248,7 @@ src/bodyTypes.js  请求体类型白名单 json / raw / form-data（M8）
 src/multipart.js  手搓 multipart/form-data 包体 + 文件字段解析（boundary / CRLF / 二进制安全，M8）
 src/fixtures.js   内置文件夹具（PNG / PDF / 伪装 exe），字节写进代码保证可重复（M8）
 src/environments.js 环境变量集：{{base}} 来源、当前环境（settings 一行）、环境级默认请求头（M9）
+src/suite.js      套件导出/导入：脱敏（只抹字面凭据，保留 {{变量}}）、按串链顺序导出、三种冲突策略（M11）
 src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断言 + 变量渲染/抽取 + multipart 组包 + 环境注入）
 src/schedules.js  定时任务 CRUD（cron 校验）
 src/scheduler.js  node-cron 调度器（注册/启停/恢复）
@@ -208,8 +257,10 @@ seed-oa-suite.mjs office-oa 用例套件（44 条，用例链 + 附件边界面 
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
 scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
 scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js  共 113 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js  共 132 例，全离线
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
+scripts/m11-suite-ui-check.mjs   套件导出/导入验证（接口层脱敏 + 真机层真的选文件导入；跑完自动清场）
+scripts/lib/cdp.mjs              真机检查的公共底座（起 Chrome / CDP 客户端 / 页面助手 / 临时账号 token）
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
 web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端同源托管）
   src/auth.js     前端会话状态（token + reactive session）
