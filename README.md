@@ -281,8 +281,15 @@ npm run clean:orphans -- --yes   # 真删，删完复查「剩余 0 条」
 | **M12** | **用例分组**：`group` 业务标签（列表筛选 / 按组运行 / 报告按组汇总），套件导入导出保留分组，编辑器可填分组 | ✅ 已完成（139 例 + OA 52 条） |
 | **M13** | **删用例的连带清理**：删用例连带删执行记录与定时任务（同一事务，并停掉内存里的 cron），`deleteCase` 返回连带条数供前端如实提示；两个 seed 脚本补上执行记录清理；新增 `npm run clean:orphans` 扫尾历史遗留（实测清掉 **791 条**孤儿） | ✅ 已完成（145 例 + OA 52 条） |
 
-> 📖 想看项目讲解 / 面试话术 / 踩坑复盘？见 [`docs/项目全讲.md`](docs/项目全讲.md)。
-> 🔗 闭环记录：见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
+### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
+
+| 文档 | 用途 |
+|---|---|
+| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M13 逐轮 + 踩坑 12 条 |
+| [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md) | 闭环记录：用本平台测穿 office-oa 的全过程 + 六个真实发现 |
+| [`docs/面试弹药-api-test-platform.md`](docs/面试弹药-api-test-platform.md) | 讲什么：10 个技术亮点 + 16 道深挖题 + 5 个「工具自己被抓出来的缺陷」 |
+| [`docs/简历弹药-api-test-platform.md`](docs/简历弹药-api-test-platform.md) | 简历上写什么：bullet + 18 项「我改过的点」shortlist + 防御深度 |
+| [`docs/关源码复现-api-test-platform.md`](docs/关源码复现-api-test-platform.md) | **会不会写**：10 道「关掉源码写出来」练习（含示范轮 + 评分标准 + 错题本模板） |
 
 ## 目录
 
@@ -320,4 +327,10 @@ web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端�
   src/views/CaseList.vue   用例列表 + 运行/汇总结果
   src/views/CaseEditor.vue 请求编辑器（含 JSON 断言编辑）
   src/views/Reports.vue    报告页（统计/明细/定时任务管理）
+docs/             面试与讲解材料（诚实口径，详见上面「面试材料」表）
+  docs/项目全讲.md                  项目讲解（M1–M13 + 踩坑 12 条）
+  docs/测穿-office-oa-闭环.md        闭环记录 + 六个真实发现
+  docs/面试弹药-api-test-platform.md  亮点 / 深挖题 / 自曝缺陷
+  docs/简历弹药-api-test-platform.md  简历 bullet / 我改过的点 shortlist
+  docs/关源码复现-api-test-platform.md 关源码复现练习（10 题 + 示范轮 + 评分标准）
 ```
