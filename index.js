@@ -18,6 +18,7 @@
 //   GET  /api/notifications/unread-count   未读条数（M17）
 //   POST /api/notifications/:id/read       标记单条已读（M17）
 //   POST /api/notifications/read-all       全部标记已读（M17）
+//   GET  /api/notifications/stream        通知实时推送（SSE；EventSource 带不了 header，token 走 ?token=）（M18）
 //   GET  /api/environments        环境变量集列表（含当前环境 activeId）
 //   POST /api/environments        新建环境 {name,baseUrl,headers,vars}
 //   PUT  /api/environments/active 切换当前环境 {id}（id 传 null = 取消当前环境）
@@ -53,7 +54,7 @@ import { exportSuite, importSuite } from './src/suite.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
-import { listNotifications, unreadCount, markRead, markAllRead } from './src/notifications.js'
+import { listNotifications, unreadCount, markRead, markAllRead, subscribe } from './src/notifications.js'
 import { signToken, verifyToken } from './src/auth.js'
 import { createUser, verifyLogin, initDefaultUser, changePassword } from './src/users.js'
 import { generateCases } from './src/aiCases.js'
@@ -66,6 +67,18 @@ async function authGuard(req, reply) {
   if (!req.url.startsWith('/api')) return // 静态资源 / 前端页面公开
   if (req.url === '/health') return
   if (req.url.startsWith('/api/auth/login') || req.url.startsWith('/api/auth/register')) return
+  // SSE 通知流（M18）：浏览器的 EventSource 不能带自定义请求头，所以 token 只能放 query。
+  // 这是 SSE 的通行做法（不是「绕过鉴权」——照样 verifyToken，只是取值位置换成 ?token=）。
+  if (req.url.startsWith('/api/notifications/stream')) {
+    const t = (req.query && req.query.token) || ''
+    if (!t) return reply.code(401).send({ error: '未登录或缺少 token' })
+    try {
+      req.user = verifyToken(String(t))
+      return
+    } catch (e) {
+      return reply.code(401).send({ error: 'token 无效或已过期：' + e.message })
+    }
+  }
   const m = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
   if (!m) return reply.code(401).send({ error: '未登录或缺少 token' })
   try {
@@ -321,6 +334,43 @@ export function buildApp() {
   })
 
   app.post('/api/notifications/read-all', async () => markAllRead())
+
+  // —— 通知实时推送（M18，SSE）——
+  // 定时任务跑完 → addNotification 落库并广播 → 这里把广播转成 text/event-stream 推给前端，
+  // 前端角标即时 +1，不用等下次刷新。用 SSE 而非 WebSocket：单向、够用、零依赖（Fastify 手写即可）。
+  // 手写而非装 @fastify/sse：整个项目「零原生依赖」的调性不能为一条通知破功。
+  app.get('/api/notifications/stream', async (req, reply) => {
+    // hijack：告诉 Fastify「这个响应我自己管」，别在 handler 返回后去发它。
+    reply.hijack()
+    const raw = reply.raw
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      // 反向代理（nginx）默认缓冲会攒着不发，显式关闭，否则「实时」变「等一坨」
+      'X-Accel-Buffering': 'no',
+    })
+    const send = (obj) => raw.write(`data: ${JSON.stringify(obj)}\n\n`)
+    // 先发一条 hello：让前端 onopen 之后立刻知道「真的连上了」，也便于测试断言
+    send({ type: 'hello', ts: Date.now() })
+    const unsubscribe = subscribe((n) => send({ type: 'notification', data: n }))
+    // 心跳：穿过 nginx / 云 LB 的空闲超时（默认常见 60s），顺便探测死连接
+    const ping = setInterval(() => raw.write(': ping\n\n'), 25000)
+    let closed = false
+    const cleanup = () => {
+      if (closed) return // close 与 error 可能都触发，幂等
+      closed = true
+      clearInterval(ping)
+      unsubscribe()
+      try {
+        raw.end()
+      } catch {
+        // 连接可能已断，忽略
+      }
+    }
+    req.raw.on('close', cleanup)
+    req.raw.on('error', cleanup)
+  })
 
   // —— AI 生成用例 ——
   app.post('/api/ai/generate-cases', async (req, reply) => {

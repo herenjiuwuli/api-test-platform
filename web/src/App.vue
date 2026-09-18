@@ -6,7 +6,7 @@
       <div class="brand">
         <span class="brand-dot">⚡</span>
         <span class="brand-name">API 自动化测试平台</span>
-        <span class="brand-sub">M17 · 用例链 + 环境变量集 + 套件 + 分组定时 + 运行通知</span>
+        <span class="brand-sub">M18 · 用例链 + 环境变量集 + 套件 + 分组定时 + 运行通知 + 实时推送</span>
       </div>
       <div class="nav">
         <el-tag v-if="activeEnvName" type="success" effect="plain" size="small" class="env-tag" @click="$router.push('/environments')">
@@ -119,6 +119,7 @@ onMounted(async () => {
   }
   if (session.token) await refreshEnvironments()
   if (session.token) await refreshNotif()
+  if (session.token) connectNotifStream()
 })
 
 // 运行通知（M17）：铃铛未读角标 + 弹窗。只拉、标记已读，不编辑不删——和后端一致。
@@ -151,6 +152,40 @@ async function readOne(n) {
 async function markAll() {
   await api.markAllNotificationsRead()
   await refreshNotif()
+}
+
+// 实时推送（M18）：连 SSE，定时任务跑完那一刻角标就 +1，不用等手动刷新/重开页面。
+// EventSource 不能带自定义 header，所以 token 走 query —— 和后端 authGuard 的约定一致。
+// 断线不用自己写重连：EventSource 天生会按 Retry 自动重连，onerror 静默即可。
+let notifStream = null
+function connectNotifStream() {
+  if (typeof EventSource === 'undefined' || notifStream) return
+  try {
+    notifStream = new EventSource(`/api/notifications/stream?token=${encodeURIComponent(session.token)}`)
+  } catch {
+    return
+  }
+  notifStream.onmessage = (ev) => {
+    let msg = null
+    try {
+      msg = JSON.parse(ev.data)
+    } catch {
+      return
+    }
+    if (msg?.type !== 'notification') return // hello / ping 之类忽略
+    unread.value += 1 // 乐观 +1，立刻反映
+    refreshNotif() // 再对齐一次真实值（也刷新列表内容）
+    const n = msg.data || {}
+    const icon = levelIcon[n.level] || 'ℹ️'
+    ElMessage({
+      message: `${icon} ${n.title || '新通知'}`,
+      type: n.level === 'error' ? 'error' : n.level === 'warn' ? 'warning' : 'info',
+      duration: 4000,
+    })
+  }
+  notifStream.onerror = () => {
+    // 网络抖动/服务重启：交给 EventSource 自动重连，不弹错骚扰用户
+  }
 }
 
 // 兜底再对齐一次（例如别处改了库、或页面被直接从外部带 hash 打开）：
