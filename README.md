@@ -285,6 +285,30 @@ npm run clean:orphans -- --yes   # 真删，删完复查「剩余 0 条」
 实测：vitest **183 例**（`tests/notifications.test.js` 13 例：通知存储层 / runScheduledJob 触发落通知 success·warn·error / HTTP 层 / **实时推送：`subscribe` 收到广播 + 订阅者抛错不连累落库 + SSE 端点真连收 hello 与 notification**；`tests/headerAssert.test.js` 13 例，含「头名大小写不敏感」「头不存在时 `eq` 判失败」）；
 闭环套件 I 段 8 条（OA-53～60）全用新断言跑通，`test:oa` **60/60**。
 
+## 平台自己的 UI 测试（M19）
+
+接口层 vitest 看不见界面——路由守卫生没生效、登录表单还能不能用、弹窗出不出来，只有真浏览器知道。M19 给平台自己补了 **11 条 Playwright E2E**：**存用例的工具，自己也得被测。**
+
+关键设计：
+
+- **不下载浏览器**：`channel: 'chrome'` 直接用系统已装的 Chrome（CI 的 ubuntu 镜像自带，同样免下载几百 MB Chromium）。
+- **离线确定性**：独立库 `data/e2e.db`（不污染开发数据），`e2e/seed-e2e.mjs` 复用真实 `seed.js` 再补 **2 条离线必绿/必红用例**——示例里有 4 条打公网，联网与否结果会变，断言不能依赖外网。`DEEPSEEK_API_KEY` 显式置空，AI 生成用例在 E2E 里永远不会真调。
+- **测试钩子**：登录页 / 列表页 / 编辑器加 `data-t` 属性，比靠按钮文案定位抗改版。
+- **hash 路由**：`createWebHashHistory` 下 `page.goto('/reports')` 走的是 path，SPA 兜底回首页——必须 `goto('/#' + route)` 且用 `location.hash` 判跳转。
+
+⭐ **E2E 上线首日就抓出自己项目里的真 bug**：SSE 长连接（M18）让无头 Chrome 收尾挂住——11 条全 `ok` 但进程永不退出。三条隔离实验定位（不登录→正常退出；禁 `EventSource`→正常退出；真登录→挂住）；应用侧 `pagehide` 清理**救不了**（无头关上下文不保证触发），唯一可靠解法是测试侧收尾导航 `about:blank` 拆掉文档。调试过程顺带修掉第二个真问题：**退出登录后 token 已清、SSE 订阅还占着**（`App.vue` 加 `disconnectNotifStream`，登出时显式 close）。
+
+另一个 Windows 特有的坑：Playwright 收尾时杀不掉自己拉起的 webServer 子进程（`taskkill /T /F` 手动执行正常，它就是杀不掉），`npm run test:e2e` 永不退出——解法是 `scripts/run-e2e.mjs` **自管服务生命周期**（起 → 等 `/health` → 跑 Playwright → 杀），起和杀都归我们管，EXIT=0 干净退出。
+
+怎么跑：
+
+```bash
+npm run build        # E2E 打的是构建产物，必须先构建
+npm run test:e2e     # 11 条全绿 + 干净退出（~1 分钟）
+```
+
+CI（`.github/workflows/ci.yml`）四层回归：静态扫描 → 构建 → vitest → E2E，失败自动传 Playwright 报告。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
