@@ -58,13 +58,39 @@ export class CDP {
         else resolve(m.result)
       }
     })
+    // 浏览器死了要立刻让所有在等的调用报错，而不是静静等到各自超时
+    ws.addEventListener('close', () => {
+      for (const { reject } of this.pending.values()) {
+        reject(new Error('CDP 连接已关闭（浏览器进程可能已退出）'))
+      }
+      this.pending.clear()
+    })
   }
 
-  send(method, params = {}) {
+  /**
+   * ⭐ 每次调用都必须有超时 —— 否则调用方那些 `while (Date.now() - t0 < timeout)` 全是**假超时**：
+   *    循环只在两次 await 之间检查时间，只要有一次 await 永不 settle，整个循环就永远卡住。
+   *    实测代价：一个写着「最多等 95 秒」的等待循环，因为一次 eval 没回来，挂了 **3 小时 31 分**
+   *    （进程一直活着占着 Chrome、占着端口，还留下一个每分钟触发的定时任务在人家库里）。
+   */
+  send(method, params = {}, timeout = 15000) {
     const id = ++this.id
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
-      this.ws.send(JSON.stringify({ id, method, params }))
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`CDP 调用超时（${timeout}ms 未返回）：${method}`))
+      }, timeout)
+      this.pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v) },
+        reject: (e) => { clearTimeout(timer); reject(e) },
+      })
+      try {
+        this.ws.send(JSON.stringify({ id, method, params }))
+      } catch (e) {
+        clearTimeout(timer)
+        this.pending.delete(id)
+        reject(e)
+      }
     })
   }
 

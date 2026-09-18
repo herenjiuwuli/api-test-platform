@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 
 const PORT = Number(process.env.E2E_PORT || 3400)
 process.env.DB_PATH = fileURLToPath(new URL('../data/e2e.db', import.meta.url))
-// 必须在 import seed.js 之前设好：seed.js 里「示例-平台自检」的 URL 用它拼 /health
+// 必须在 import seed.js 之前设好：seed.js 里「自检-*」用例的 URL 用它拼 /health
 process.env.PORT = String(PORT)
 
 const { getDb, closeDb, dbPath } = await import('../src/db.js')

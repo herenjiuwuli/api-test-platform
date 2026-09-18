@@ -7,7 +7,9 @@
 //   [*]            数组通配（展开所有元素）
 //   .length        数组长度（返回数字）
 // 求值返回「匹配值数组」；路径无匹配返回 []。
-// 不支持的（明确不做）：过滤器 [?()]、递归 ..、切片 [1:3]、当前节点 @。
+// 不支持的（明确不做）：过滤器 [?()]、递归 ..、切片 [1:3]、当前节点 @、
+//   以及 `$.1`（点号后跟数字）这种方言 —— 数组下标统一写 `$[1]`；
+//   真被写成 `$.1` 时，断言失败信息会用 pathDialectHint() 提示改写方式。
 
 /**
  * 按 JSONPath 取匹配值数组。
@@ -36,6 +38,25 @@ export function jsonPathGet(root, pathStr) {
 export function jsonPathFirst(root, pathStr) {
   const vals = jsonPathGet(root, pathStr)
   return vals.length ? vals[0] : undefined
+}
+
+/**
+ * 判断路径是不是用了「别的 JSONPath 方言」，给一句改写提示。
+ *
+ * 为什么需要：`$.1.name`（点号后跟数字）在某些 JSONPath 实现里合法，但本实现只认 `$[1].name`
+ * （见文件头的支持清单）。求值会**静默返回 0 个匹配**，断言里显示「匹配 0 个」——
+ * 用户很难想到「不是数据不对，是方言不对」。所以失败时主动把改写方式说出来。
+ *
+ * @param {string} pathStr
+ * @returns {string} 提示文案；不是方言问题则返回空串
+ */
+export function pathDialectHint(pathStr) {
+  const p = String(pathStr == null ? '' : pathStr)
+  // 「.数字」且后面不是字段名的一部分（如 $.data.list.0 / $.1.name）
+  if (/\.\d+(?![\w$])/.test(p)) {
+    return `（提示：本平台的数组下标请写 $[1] 形式，不支持 $.1 这种写法）`
+  }
+  return ''
 }
 
 // —— 内部实现 ——

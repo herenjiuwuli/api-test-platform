@@ -28,7 +28,7 @@ test.describe('M19 · 用例列表与运行', () => {
     await expect(caseRow(page, 'E2E-自检必绿')).toHaveCount(1)
     await expect(caseRow(page, 'E2E-状态码必红')).toHaveCount(1)
     // 平台真实 seed.js 的示例数据也在（E2E 打的就是用户首开看到的那份）
-    await expect(caseRow(page, '示例-平台自检')).toHaveCount(1)
+    await expect(caseRow(page, '自检-GET 状态码 + 包含 + JSONPath')).toHaveCount(1)
   })
 
   test('单条运行「必绿」用例 → 结果弹窗显示 ✓ 通过', async ({ page }) => {
@@ -53,7 +53,7 @@ test.describe('M19 · 用例列表与运行', () => {
     await selectGroup(page, 'e2e-离线')
     await expect(page.locator('[data-t=case-table] tbody tr')).toHaveCount(2)
     // 分组外的用例必须消失（只断言「有 2 行」不够：万一压根没筛，也有可能恰好 2 行）
-    await expect(caseRow(page, '示例-平台自检')).toHaveCount(0)
+    await expect(caseRow(page, '自检-GET 状态码 + 包含 + JSONPath')).toHaveCount(0)
   })
 
   test('运行该分组 → 汇总「通过 1 / 2」+ 失败 1', async ({ page }) => {

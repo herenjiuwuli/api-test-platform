@@ -1,6 +1,6 @@
 # API 自动化测试平台
 
-> 面向全栈 / 测试运维岗位的简历项目。**M1–M21 已完成**：存用例 → 手动/定时跑 → 多维度断言（状态码/包含/耗时/JSONPath/**响应头**）→ 出报告 → 账号鉴权 → 单端口部署 → 环境变量集 → 套件导出导入 → 用例分组 → 删用例连带清理 → **分组定时任务（一个 cron 跑整组用例）** → **运行通知（定时任务跑完/失败落站内通知，前端铃铛未读角标）** → **通知实时推送（SSE，跑完那一刻角标即时 +1）** → **通知降噪 + 保留策略（成功静默只看失败，日志自动裁剪）** → **失败侧 webhook 外呼（升级到飞书/hermes）** → **平台自己的 Playwright E2E（11 条真浏览器用例）**。
+> 面向全栈 / 测试运维岗位的简历项目。**M1–M22 已完成**：存用例 → 手动/定时跑 → 多维度断言（状态码/包含/耗时/JSONPath/**响应头**）→ 出报告 → 账号鉴权 → 单端口部署 → 环境变量集 → 套件导出导入 → 用例分组 → 删用例连带清理 → **分组定时任务（一个 cron 跑整组用例）** → **运行通知（定时任务跑完/失败落站内通知，前端铃铛未读角标）** → **通知实时推送（SSE，跑完那一刻角标即时 +1）** → **通知降噪 + 保留策略（成功静默只看失败，日志自动裁剪）** → **失败侧 webhook 外呼（升级到飞书/hermes）** → **平台自己的 Playwright E2E（11 条真浏览器用例）** → **数据自洽：「自测」用例组由 `seed.js` 单一真源幂等维护，并给自己补了种子回归测试**。
 > 背景：实习每天手动点接口验证采集脚本，于是造一个能「存用例 → 手动/定时跑 → 出报告 → 账号体系 → 一键部署」的自用测试工具。
 
 ## 技术栈
@@ -9,7 +9,7 @@
 - 前端：**Vue3 + Vite + Element Plus** + vue-router + axios（`web/` 子目录）
 - 测试：**Vitest**
 
-## 当前能力（M1–M21）
+## 当前能力（M1–M22）
 
 - **鉴权（M4，零依赖实现）**：
   - 密码哈希：Node 内置 `crypto.scrypt`（加盐 + `timingSafeEqual` 防时序攻击）
@@ -60,8 +60,8 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 测试与构建：
 
 ```bash
-npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 193 例全绿（全离线）
+npm run seed       # 写入 13 条「自测」用例（覆盖全断言维度，含 4 条打外网）+ 1 条演示定时任务，首次打开就有东西可跑
+npm test           # vitest 206 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist（E2E 打的是这份产物，必须先构建）
 npm run test:e2e   # Playwright 11 条真浏览器 UI 测试（channel:'chrome' 复用系统 Chrome，不下载浏览器；独立库 data/e2e.db 不污染开发数据）
 ```
@@ -354,7 +354,8 @@ M20 之前的通知都只活在平台页面里——人不在电脑前就收不�
 | **M18** | **通知实时推送（SSE）**：`notifications.js` 加进程内极简 pub/sub（`subscribe(fn)` 返回退订函数，`addNotification` 落库后广播）；新增 `GET /api/notifications/stream`（手写 `text/event-stream`：`reply.hijack()` 自己管响应 + 25s 心跳防代理空闲超时 + 连接关闭即退订）；`authGuard` 对 SSE 放行 header 校验、改用 `?token=`（EventSource 带不了自定义头）；前端 `App.vue` 用 `EventSource` 订阅，定时任务跑完那一刻角标即时 +1 + `ElMessage` 轻提示。⭐ 设计点：① 用 SSE 而非 WebSocket（单向够用、零依赖，不为一条通知破坏「零原生依赖」调性）；② token 走 query 是 SSE 的通行做法（照样 `verifyToken`，只是取值位置变了），不是绕过鉴权；③ 订阅者抛错 / 写通知失败都不连累落库与调度本体；④ 断线重连交给 EventSource 自带的重试，`onerror` 静默不骚扰用户 | ✅ 已完成（183 例 + OA 60 条） |
 | **M19** | **平台自己的 Playwright E2E**：11 条真浏览器用例（鉴权路由守卫 / 真实表单登录 / 单条必绿·必红 / 分组筛选·按组运行 / 报告分组维度 / 新建·删除）。`channel:'chrome'` 复用系统 Chrome **不下载浏览器**；独立库 `data/e2e.db` + 确定性种子（2 条离线必绿/必红用例，断言不依赖外网）；页面加 `data-t` 测试钩子抗改版；`about:blank` 收尾 fixture + `scripts/run-e2e.mjs` 自管服务解决两个「全绿但进程不退出」的挂死。⭐ 调试故事：E2E 上线首日就抓出一个**自己项目里的真 bug**——SSE 长连接让无头 Chrome 收尾挂住（`pagehide` 清理救不了，测试侧拆文档才可靠），顺带修掉「退出登录后 token 已清、SSE 订阅还占着」的泄漏 | ✅ 已完成（183 例接口 + 11 条 E2E + OA 60 条） |
 | **M20** | **通知降噪 + 保留策略**：任务级 `notifyOn: all \| failure`（默认 all 不改 M17 行为；failure 模式全绿静默、warn/error 照落——「成功静默、失败才喊人」的监控惯例；白名单外回退 all）；`addNotification` 落库自动裁剪只留最近 500 条（不做成接口——「清理日志」和「改写历史」只隔一层窗户纸；单条 SQL 幂等裁剪）。前端定时表单「只在失败时通知」开关 + 任务表「通知」列 | ✅ 已完成（186 例接口 + 11 条 E2E + OA 60 条） |
-| **M21** | **通知出口（webhook 外呼）**：`GET/PUT /api/notifications/webhook` 配置出口地址（settings KV，http/https 校验），失败侧（warn/error）通知落库后 JSON POST 出去（可指向飞书机器人 / hermes / 任意收 JSON 端点）；`forwardToWebhook` **永不抛错**（3s 超时，错误全转返回值）——出口挂了不影响调度本体、站内记录一条不丢。⭐ 顺带根治本机 E2E「跑完不退出」：force-exit reporter（onTestEnd 强退）+ 输出看门狗（60s 无输出判挂死）+ 自动重试，5 连跑全 EXIT=0（含一次真实自愈） | ✅ 已完成（193 例接口 + 11 条 E2E + OA 60 条） |
+| **M21** | **通知出口（webhook 外呼）**：`GET/PUT /api/notifications/webhook` 配置出口地址（settings KV，http/https 校验），失败侧（warn/error）通知落库后 JSON POST 出去（可指向飞书机器人 / hermes / 任意收 JSON 端点）；`forwardToWebhook` **永不抛错**（3s 超时，错误全转返回值）——出口挂了不影响调度本体、站内记录一条不丢。⭐ 顺带根治本机 E2E「跑完不退出」：force-exit reporter（onTestEnd 强退）+ 输出看门狗（60s 无输出判挂死）+ 自动重试，5 连跑全 EXIT=0（含一次真实自愈） | ✅ 已完成（206 例接口 + 11 条 E2E + OA 60 条） |
+| **M22** | **数据自洽：把「自测」用例组收成一个真源**。① 散落的历史示例用例（无分组、其中 5 条是红的、还有一条名字是乱码）收敛为分组 `自测`，由 `seed.js` **单一真源幂等维护**（13 条，覆盖状态码/包含/耗时/JSONPath/响应头 5 类断言 + 鉴权与路由语义），报告页一眼区分「测平台自己」与「测 OA」；② 修掉 `seed.js` **自己写错的 JSONPath 方言**——`$.1.name`（本平台只认 `$[1]`）求值静默返回 0 匹配，导致**每跑一次 seed 就往库里埋一条必红用例**，「全部运行」长期停在 68/74；③ 新增 `tests/seed.test.js` 9 例：不许出现 `$.1` 方言、不许出现期望 405、断言维度覆盖齐全、外网依赖名字必须带前缀、**幂等性**、以及「历史遗留名字（`示例-*` / `健康检查-*`）能被清干净」；④ 截图导览脚本的演示对象从「库里捡一条红的」改成**自建自删的临时用例**，不再依赖偶然数据；收尾删除写进 **`finally` + 看门狗**（不再只写在正常路径末尾），并给 CDP 的每次调用补上超时 —— 起因是它曾在一次 `eval` 上**挂死 3 小时 31 分**，把一条「每分钟触发」的定时任务留在库里无人看管地跑。⭐ 一句话：**种子数据也是代码，也会写出错的断言，也该有测试。** | ✅ 已完成（206 例接口 + 11 条 E2E + OA 60 条） |
 
 ### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
 
@@ -396,7 +397,7 @@ e2e/seed-e2e.mjs     E2E 确定性种子：复用真实 seed.js + 补 2 条离�
 e2e/helpers.js       E2E 公共层：真实表单登录 / hash 路由判据 / 等数据到位 / ★ about:blank 收尾 fixture（拆掉 SSE 长连接防挂死）
 scripts/run-e2e.mjs  E2E 包装器：自管服务生命周期（起 → 等 /health → 跑 Playwright → 杀）——绕开 Windows 上 Playwright 收尾杀不掉 webServer 的坑
 .github/workflows/ci.yml  CI：静态扫描 → 构建 → vitest → E2E（ubuntu 上 webServer 收尾正常，直跑 playwright test）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js  共 193 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js  共 206 例，全离线
 e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + e2e/force-exit-reporter.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；force-exit reporter + 看门狗重试绕开本机 flaky 收尾；CI 走 .github/workflows/ci.yml）
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）

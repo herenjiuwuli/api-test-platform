@@ -1,6 +1,6 @@
 // JSONPath 求值器单测
 import { describe, it, expect } from 'vitest'
-import { jsonPathGet, jsonPathFirst } from '../src/jsonpath.js'
+import { jsonPathGet, jsonPathFirst, pathDialectHint } from '../src/jsonpath.js'
 
 const doc = {
   code: 0,
@@ -60,5 +60,32 @@ describe('jsonPathGet', () => {
   it('jsonPathFirst 取首个匹配', () => {
     expect(jsonPathFirst(doc, '$.data.list[*].id')).toBe(1)
     expect(jsonPathFirst(doc, '$.nope')).toBeUndefined()
+  })
+})
+
+// 方言陷阱：`$.1.name` 是别的实现里的合法写法，本平台只认 `$[1].name`。
+// 直接求值只是「静默 0 个匹配」，光看结果根本看不出是方言问题，所以要有提示（见 pathDialectHint）。
+describe('真实用例踩过的方言坑（$.1 vs $[1]）', () => {
+  it('$.1.name 在本实现里就是取不到（0 个匹配）', () => {
+    expect(jsonPathGet(doc, '$.data.list.1.name')).toEqual([])
+    expect(jsonPathGet(doc, '$.1')).toEqual([])
+  })
+
+  it('同一个位置用下标方言 $[1] 能取到', () => {
+    expect(jsonPathGet(doc, '$.data.list[1].name')).toEqual(['b'])
+  })
+
+  it('失败时给出改写提示', () => {
+    expect(pathDialectHint('$.data.list.1.name')).toContain('$[1]')
+    expect(pathDialectHint('$.1')).toContain('$[1]')
+  })
+
+  it('正常路径不给提示（否则每条失败都多一句噪音）', () => {
+    expect(pathDialectHint('$.data.list[1].name')).toBe('')
+    expect(pathDialectHint('$.data.list.length')).toBe('')
+    expect(pathDialectHint('$.code')).toBe('')
+    // `$.a1` 这类字段名里含数字，不该被误判成下标方言
+    expect(pathDialectHint('$.item2.name')).toBe('')
+    expect(pathDialectHint(null)).toBe('')
   })
 })

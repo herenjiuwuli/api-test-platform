@@ -9,7 +9,7 @@
 import { saveRun } from './cases.js'
 import { normalizeBodyType } from './bodyTypes.js'
 import { getActiveEnvironment, mergeHeaders, mergeVarBag } from './environments.js'
-import { jsonPathGet } from './jsonpath.js'
+import { jsonPathGet, pathDialectHint } from './jsonpath.js'
 import { buildMultipart, resolveFiles, toFields, unknownFixtureMessage } from './multipart.js'
 import { applyExtract, createVarBag, missingVarNote, renderTemplate } from './vars.js'
 
@@ -114,7 +114,8 @@ export async function runCase(def, { persist = true, vars, env } = {}) {
         if (!evalJsonCheck(first, vals, check)) {
           pass = false
           detail.push(
-            `JSONPath ${check.path} ${check.op} ${JSON.stringify(check.value)} 不成立（匹配 ${vals.length} 个，首个 ${JSON.stringify(first)}）`,
+            `JSONPath ${check.path} ${check.op} ${JSON.stringify(check.value)} 不成立（匹配 ${vals.length} 个，首个 ${JSON.stringify(first)}）`
+              + pathDialectHint(check.path),
           )
         }
       }

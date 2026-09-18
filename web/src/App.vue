@@ -6,7 +6,7 @@
       <div class="brand">
         <span class="brand-dot">⚡</span>
         <span class="brand-name">API 自动化测试平台</span>
-        <span class="brand-sub">M18 · 用例链 + 环境变量集 + 套件 + 分组定时 + 运行通知 + 实时推送</span>
+        <span class="brand-sub">M22 · 用例链 + 环境变量集 + 套件 + 分组定时 + 通知（实时/外呼）</span>
       </div>
       <div class="nav">
         <el-tag v-if="activeEnvName" type="success" effect="plain" size="small" class="env-tag" @click="$router.push('/environments')">
@@ -262,10 +262,11 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, "Segoe UI", "
   border-bottom: 1px solid #e4e7ed;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
-.brand { display: flex; align-items: center; gap: 8px; }
+/* min-width:0 是给 .brand-sub 的省略号留收缩空间；nowrap 是防止「API 自动化测试平台」被挤断成两行 */
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .brand-dot { font-size: 18px; }
-.brand-name { font-size: 16px; font-weight: 600; color: #303133; }
-.brand-sub { font-size: 12px; color: #909399; }
+.brand-name { font-size: 16px; font-weight: 600; color: #303133; white-space: nowrap; }
+.brand-sub { font-size: 12px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav { display: flex; align-items: center; gap: 4px; }
 .env-tag { cursor: pointer; margin-right: 8px; }
 .who { font-size: 13px; color: #606266; margin-right: 6px; cursor: pointer; user-select: none; }
