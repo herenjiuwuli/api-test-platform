@@ -64,6 +64,9 @@ export const api = {
   unreadCount: () => http.get('/api/notifications/unread-count').then((r) => r.data),
   markNotificationRead: (id) => http.post(`/api/notifications/${id}/read`).then((r) => r.data),
   markAllNotificationsRead: () => http.post('/api/notifications/read-all').then((r) => r.data),
+  // M21：通知出口 webhook（失败侧通知 POST 到该地址）
+  getNotifyWebhook: () => http.get('/api/notifications/webhook').then((r) => r.data),
+  setNotifyWebhook: (url) => http.put('/api/notifications/webhook', { url }).then((r) => r.data),
   // AI 生成用例（AI 响应较慢，单独放宽超时）
   aiGenerateCases: (payload) =>
     http.post('/api/ai/generate-cases', payload, { timeout: 120000 }).then((r) => r.data),

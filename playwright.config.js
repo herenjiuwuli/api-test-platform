@@ -33,7 +33,11 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
 
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
+  // 本机（Windows）追加 force-exit reporter：runner 收尾偶发挂住（同代码 4 跑 2 挂），
+  // 测试全部结束后由它 process.exit——绕开 flaky teardown。CI 上收尾正常，不加。
+  reporter: process.env.CI
+    ? [['list'], ['html', { open: 'never' }]]
+    : [['list'], ['./e2e/force-exit-reporter.mjs']],
 
   use: {
     baseURL: BASE_URL,

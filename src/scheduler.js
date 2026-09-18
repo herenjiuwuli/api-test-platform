@@ -8,6 +8,7 @@ import { listSchedules, validateCron } from './schedules.js'
 import { getCase, listCases } from './cases.js'
 import { runCase, runAll } from './runner.js'
 import { addNotification } from './notifications.js'
+import { forwardToWebhook } from './webhook.js'
 
 const jobs = new Map() // scheduleId → cron Task
 
@@ -71,7 +72,11 @@ export async function runScheduledJob(schedule) {
   // 注意只在**落库前**拦，运行本体照常执行——降噪 ≠ 不跑。
   if (level === 'success' && schedule.notifyOn === 'failure') return
   try {
-    addNotification({ level, title, body, target })
+    const created = addNotification({ level, title, body, target })
+    // M21 通知出口：失败侧（warn/error）顺带 POST 到配置的 webhook（人不在电脑前也能收到）。
+    // forwardToWebhook 永不抛错（内部全吞成返回值），所以这里敢直接 await——
+    // 站内通知已落库在前，出口失败最多丢外呼，不丢记录、不连累调度本体。
+    await forwardToWebhook(created)
   } catch {
     // 通知挂了不能影响调度本体
   }

@@ -124,6 +124,24 @@
     </el-card>
 
     <el-card class="sec" shadow="never">
+      <template #header>📣 通知出口（webhook，可选）</template>
+      <div class="sched-form">
+        <el-input
+          v-model="whForm.url"
+          data-t="webhook-url"
+          placeholder="https://…（失败侧通知会 POST 到该地址；清空保存 = 关闭出口）"
+          style="flex: 1"
+          clearable
+        />
+        <el-button type="primary" :loading="whSaving" data-t="webhook-save" @click="onSaveWebhook">保存</el-button>
+      </div>
+      <p class="webhook-hint">
+        配置后，定时任务跑出的 <b>断言失败（warn）</b> 和 <b>运行异常（error）</b> 通知会以 JSON POST 到该地址
+        （3s 超时、尽力而为——出口挂了不影响任务本体），可指向飞书机器人 webhook 或 hermes 网关。success 永不转发。
+      </p>
+    </el-card>
+
+    <el-card class="sec" shadow="never">
       <template #header>⏰ 定时任务（node-cron）</template>
       <div class="sched-form">
         <el-radio-group v-model="schedForm.target" size="small">
@@ -188,6 +206,8 @@ const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0,
 const schedules = ref([])
 const cases = ref([])
 const schedForm = ref({ target: 'case', caseId: null, group: '', cron: '', notifyFailure: false })
+const whForm = ref({ url: '' })
+const whSaving = ref(false)
 
 // 从用例列表派生出可选分组（分组标签来自每条用例的 group 字段）
 const groups = computed(() => {
@@ -261,7 +281,29 @@ async function onDeleteSchedule(row) {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // 通知出口地址单独拉（读 settings，和报告数据无关）
+  try {
+    const r = await api.getNotifyWebhook()
+    whForm.value.url = r.url || ''
+  } catch {
+    // 读不到就保持空——出口是可选能力，加载失败不该吵用户
+  }
+})
+
+async function onSaveWebhook() {
+  whSaving.value = true
+  try {
+    const r = await api.setNotifyWebhook(whForm.value.url.trim())
+    whForm.value.url = r.url || ''
+    ElMessage.success(r.url ? '已保存通知出口' : '已关闭通知出口')
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e.response?.data?.error || e.message))
+  } finally {
+    whSaving.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -283,4 +325,5 @@ onMounted(load)
 .detail-text { font-size: 12px; color: #909399; }
 .sched-form { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
 .notify-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--el-text-color-regular); cursor: pointer; white-space: nowrap; }
+.webhook-hint { margin: 4px 0 0; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.6; }
 </style>

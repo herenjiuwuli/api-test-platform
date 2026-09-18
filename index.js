@@ -18,6 +18,8 @@
 //   GET  /api/notifications/unread-count   未读条数（M17）
 //   POST /api/notifications/:id/read       标记单条已读（M17）
 //   POST /api/notifications/read-all       全部标记已读（M17）
+//   GET  /api/notifications/webhook        读通知出口 webhook 地址（空 = 未启用，M21）
+//   PUT  /api/notifications/webhook        配置通知出口 {url}（空串关闭；失败侧通知会 POST 到该地址）（M21）
 //   GET  /api/notifications/stream        通知实时推送（SSE；EventSource 带不了 header，token 走 ?token=）（M18）
 //   GET  /api/environments        环境变量集列表（含当前环境 activeId）
 //   POST /api/environments        新建环境 {name,baseUrl,headers,vars}
@@ -55,6 +57,7 @@ import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSched
 import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
 import { listNotifications, unreadCount, markRead, markAllRead, subscribe } from './src/notifications.js'
+import { getWebhookUrl, setWebhookUrl } from './src/webhook.js'
 import { signToken, verifyToken } from './src/auth.js'
 import { createUser, verifyLogin, initDefaultUser, changePassword } from './src/users.js'
 import { generateCases } from './src/aiCases.js'
@@ -334,6 +337,16 @@ export function buildApp() {
   })
 
   app.post('/api/notifications/read-all', async () => markAllRead())
+  // M21 通知出口：失败侧通知 POST 到这个地址（飞书机器人 / hermes / 任意收 JSON 的端点）
+  app.get('/api/notifications/webhook', async () => ({ url: getWebhookUrl() }))
+  app.put('/api/notifications/webhook', async (req, reply) => {
+    try {
+      const url = setWebhookUrl(req.body?.url)
+      return { url }
+    } catch (e) {
+      return reply.code(400).send({ error: e.message })
+    }
+  })
 
   // —— 通知实时推送（M18，SSE）——
   // 定时任务跑完 → addNotification 落库并广播 → 这里把广播转成 text/event-stream 推给前端，

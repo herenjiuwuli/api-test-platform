@@ -1,6 +1,6 @@
 # API 自动化测试平台
 
-> 面向全栈 / 测试运维岗位的简历项目。**M1–M20 已完成**：存用例 → 手动/定时跑 → 多维度断言（状态码/包含/耗时/JSONPath/**响应头**）→ 出报告 → 账号鉴权 → 单端口部署 → 环境变量集 → 套件导出导入 → 用例分组 → 删用例连带清理 → **分组定时任务（一个 cron 跑整组用例）** → **运行通知（定时任务跑完/失败落站内通知，前端铃铛未读角标）** → **通知实时推送（SSE，跑完那一刻角标即时 +1）** → **通知降噪 + 保留策略（成功静默只看失败，日志自动裁剪）** → **平台自己的 Playwright E2E（11 条真浏览器用例）**。
+> 面向全栈 / 测试运维岗位的简历项目。**M1–M21 已完成**：存用例 → 手动/定时跑 → 多维度断言（状态码/包含/耗时/JSONPath/**响应头**）→ 出报告 → 账号鉴权 → 单端口部署 → 环境变量集 → 套件导出导入 → 用例分组 → 删用例连带清理 → **分组定时任务（一个 cron 跑整组用例）** → **运行通知（定时任务跑完/失败落站内通知，前端铃铛未读角标）** → **通知实时推送（SSE，跑完那一刻角标即时 +1）** → **通知降噪 + 保留策略（成功静默只看失败，日志自动裁剪）** → **失败侧 webhook 外呼（升级到飞书/hermes）** → **平台自己的 Playwright E2E（11 条真浏览器用例）**。
 > 背景：实习每天手动点接口验证采集脚本，于是造一个能「存用例 → 手动/定时跑 → 出报告 → 账号体系 → 一键部署」的自用测试工具。
 
 ## 技术栈
@@ -9,7 +9,7 @@
 - 前端：**Vue3 + Vite + Element Plus** + vue-router + axios（`web/` 子目录）
 - 测试：**Vitest**
 
-## 当前能力（M1–M20）
+## 当前能力（M1–M21）
 
 - **鉴权（M4，零依赖实现）**：
   - 密码哈希：Node 内置 `crypto.scrypt`（加盐 + `timingSafeEqual` 防时序攻击）
@@ -61,7 +61,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 186 例全绿（全离线）
+npm test           # vitest 193 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist（E2E 打的是这份产物，必须先构建）
 npm run test:e2e   # Playwright 11 条真浏览器 UI 测试（channel:'chrome' 复用系统 Chrome，不下载浏览器；独立库 data/e2e.db 不污染开发数据）
 ```
@@ -321,6 +321,16 @@ M17 给每个定时任务的每次运行都发通知。监控跑得勤（比如�
 
 - **保留策略**：`addNotification` 落库后自动裁剪，只留最近 **500** 条。裁剪**不做成接口**——「清理日志」和「改写历史」只隔一层窗户纸，让它是自动行为而不是别人的可调用能力。实现是一条 SQL：`DELETE ... WHERE id <= (SELECT id ... ORDER BY id DESC LIMIT 1 OFFSET 500)`，不足 500 条时 OFFSET 取不到行返回 NULL、恒不删，天然幂等。
 
+## 通知出口（M21）
+
+M20 之前的通知都只活在平台页面里——人不在电脑前就收不到。M21 补上监控闭环的最后一环「**升级外呼**」：配置一个 webhook 地址（`GET/PUT /api/notifications/webhook`），失败侧通知落库后以 JSON POST 出去，指向飞书机器人 webhook、hermes 网关、任意能收 JSON 的端点都行。
+
+- **只转发失败侧**（warn 断言失败 / error 没跑成）——success 永不转发，和 M20 同一个理。
+- **`forwardToWebhook` 永不抛错**：3s 超时、fetch 异常、HTTP 非 2xx 全部转成 `{ok:false}` 返回值，调度器可以放心 `await`——**出口挂了不能影响调度本体**，站内记录一条不丢（外呼失败最多丢「喊人」，不丢「记录」）。
+- **地址存 settings 表**（全局 KV，和「当前环境」同一套机制）；URL 校验只放行能被 `new URL` 解析的 http/https 绝对地址，非法值路由层转 400。
+- 消息体与站内通知同构，外加 `type: 'api-test-platform.notify'` 标识来源——收端（飞书适配器 / hermes）好路由。
+- 前端报告页新增「📣 通知出口」卡片：输入地址保存即启用，清空保存即关闭。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
@@ -344,6 +354,7 @@ M17 给每个定时任务的每次运行都发通知。监控跑得勤（比如�
 | **M18** | **通知实时推送（SSE）**：`notifications.js` 加进程内极简 pub/sub（`subscribe(fn)` 返回退订函数，`addNotification` 落库后广播）；新增 `GET /api/notifications/stream`（手写 `text/event-stream`：`reply.hijack()` 自己管响应 + 25s 心跳防代理空闲超时 + 连接关闭即退订）；`authGuard` 对 SSE 放行 header 校验、改用 `?token=`（EventSource 带不了自定义头）；前端 `App.vue` 用 `EventSource` 订阅，定时任务跑完那一刻角标即时 +1 + `ElMessage` 轻提示。⭐ 设计点：① 用 SSE 而非 WebSocket（单向够用、零依赖，不为一条通知破坏「零原生依赖」调性）；② token 走 query 是 SSE 的通行做法（照样 `verifyToken`，只是取值位置变了），不是绕过鉴权；③ 订阅者抛错 / 写通知失败都不连累落库与调度本体；④ 断线重连交给 EventSource 自带的重试，`onerror` 静默不骚扰用户 | ✅ 已完成（183 例 + OA 60 条） |
 | **M19** | **平台自己的 Playwright E2E**：11 条真浏览器用例（鉴权路由守卫 / 真实表单登录 / 单条必绿·必红 / 分组筛选·按组运行 / 报告分组维度 / 新建·删除）。`channel:'chrome'` 复用系统 Chrome **不下载浏览器**；独立库 `data/e2e.db` + 确定性种子（2 条离线必绿/必红用例，断言不依赖外网）；页面加 `data-t` 测试钩子抗改版；`about:blank` 收尾 fixture + `scripts/run-e2e.mjs` 自管服务解决两个「全绿但进程不退出」的挂死。⭐ 调试故事：E2E 上线首日就抓出一个**自己项目里的真 bug**——SSE 长连接让无头 Chrome 收尾挂住（`pagehide` 清理救不了，测试侧拆文档才可靠），顺带修掉「退出登录后 token 已清、SSE 订阅还占着」的泄漏 | ✅ 已完成（183 例接口 + 11 条 E2E + OA 60 条） |
 | **M20** | **通知降噪 + 保留策略**：任务级 `notifyOn: all \| failure`（默认 all 不改 M17 行为；failure 模式全绿静默、warn/error 照落——「成功静默、失败才喊人」的监控惯例；白名单外回退 all）；`addNotification` 落库自动裁剪只留最近 500 条（不做成接口——「清理日志」和「改写历史」只隔一层窗户纸；单条 SQL 幂等裁剪）。前端定时表单「只在失败时通知」开关 + 任务表「通知」列 | ✅ 已完成（186 例接口 + 11 条 E2E + OA 60 条） |
+| **M21** | **通知出口（webhook 外呼）**：`GET/PUT /api/notifications/webhook` 配置出口地址（settings KV，http/https 校验），失败侧（warn/error）通知落库后 JSON POST 出去（可指向飞书机器人 / hermes / 任意收 JSON 端点）；`forwardToWebhook` **永不抛错**（3s 超时，错误全转返回值）——出口挂了不影响调度本体、站内记录一条不丢。⭐ 顺带根治本机 E2E「跑完不退出」：force-exit reporter（onTestEnd 强退）+ 输出看门狗（60s 无输出判挂死）+ 自动重试，5 连跑全 EXIT=0（含一次真实自愈） | ✅ 已完成（193 例接口 + 11 条 E2E + OA 60 条） |
 
 ### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
 
@@ -372,8 +383,9 @@ src/environments.js 环境变量集：{{base}} 来源、当前环境（settings 
 src/suite.js      套件导出/导入：脱敏（只抹字面凭据，保留 {{变量}}）、按串链顺序导出、三种冲突策略（M11）
 src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks/**headers** 断言 + 变量渲染/抽取 + multipart 组包 + 环境注入 + **按字节解码响应**）
 src/schedules.js  定时任务 CRUD（cron 校验；case_id 或 group 二选一，group 优先，M15；notifyOn 降噪开关 M20）
-src/scheduler.js  node-cron 调度器（注册/启停/恢复；跑完落运行通知 M17；failure 模式成功静默 M20）
+src/scheduler.js  node-cron 调度器（注册/启停/恢复；跑完落运行通知 M17；failure 模式成功静默 M20；落库后 webhook 外呼 M21）
 src/notifications.js 运行通知存储层（增/列/未读/已读，读写模型做薄）+ SSE 广播源（subscribe 发布/订阅，M17/M18）+ 500 条保留裁剪（M20）
+src/webhook.js    通知出口（M21）：settings 存地址 + forwardToWebhook 外呼（只转 warn/error，永不抛错，3s 超时）
 src/reports.js    执行记录查询 + 报告聚合
 seed-oa-suite.mjs office-oa 用例套件（60 条 + 按 A–I 段打 `group` 分组，用例链 + 附件边界面 + 附件全生命周期 + 站内通知 + 单据导出；并定义当前环境）— npm run seed:oa
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
@@ -384,8 +396,8 @@ e2e/seed-e2e.mjs     E2E 确定性种子：复用真实 seed.js + 补 2 条离�
 e2e/helpers.js       E2E 公共层：真实表单登录 / hash 路由判据 / 等数据到位 / ★ about:blank 收尾 fixture（拆掉 SSE 长连接防挂死）
 scripts/run-e2e.mjs  E2E 包装器：自管服务生命周期（起 → 等 /health → 跑 Playwright → 杀）——绕开 Windows 上 Playwright 收尾杀不掉 webServer 的坑
 .github/workflows/ci.yml  CI：静态扫描 → 构建 → vitest → E2E（ubuntu 上 webServer 收尾正常，直跑 playwright test）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/schedules.test.js + tests/notifications.test.js  共 186 例，全离线
-e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；CI 走 .github/workflows/ci.yml）
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js  共 193 例，全离线
+e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + e2e/force-exit-reporter.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；force-exit reporter + 看门狗重试绕开本机 flaky 收尾；CI 走 .github/workflows/ci.yml）
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
 scripts/m11-suite-ui-check.mjs   套件导出/导入验证（接口层脱敏 + 真机层真的选文件导入；跑完自动清场）
