@@ -6,3 +6,9 @@ dist
 data/
 .env
 .env.*
+
+# Playwright（M19）：报告与失败留痕都是产物，不进仓库
+playwright-report/
+test-results/
+blob-report/
+.e2e-tmp/

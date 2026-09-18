@@ -9,7 +9,7 @@
 
     <el-form :model="form" label-width="90px" @submit.prevent>
       <el-form-item label="名称" required>
-        <el-input v-model="form.name" placeholder="如：健康检查" />
+        <el-input v-model="form.name" data-t="name" placeholder="如：健康检查" />
       </el-form-item>
 
       <el-form-item label="请求" required>
@@ -17,7 +17,7 @@
           <el-select v-model="form.method" style="width: 120px">
             <el-option v-for="m in methods" :key="m" :label="m" :value="m" />
           </el-select>
-          <el-input v-model="form.url" placeholder="https://api.example.com/path" />
+          <el-input v-model="form.url" data-t="url" placeholder="https://api.example.com/path" />
         </div>
         <div class="field-hint">
           建议写成 <code>{{ BASE_TAG }}/api/xxx</code> —— 地址由「当前环境」提供，换环境不用改用例；
@@ -26,7 +26,7 @@
       </el-form-item>
 
       <el-form-item label="分组">
-        <el-input v-model="form.group" placeholder="业务分组标签，如 鉴权 / 审批引擎 / 附件全周期（可选，用于筛选与报告）" />
+        <el-input v-model="form.group" data-t="group" placeholder="业务分组标签，如 鉴权 / 审批引擎 / 附件全周期（可选，用于筛选与报告）" />
         <p class="json-hint">同主题的用例打同一个标签，列表可按组筛选、报告可按组看通过率。留空 = 未分组。</p>
       </el-form-item>
 
@@ -71,10 +71,10 @@
       <el-divider content-position="left">断言期望（expected）</el-divider>
 
       <el-form-item label="状态码">
-        <el-input v-model="expected.status" type="number" placeholder="如 200（可选）" style="width: 220px" />
+        <el-input v-model="expected.status" data-t="expected-status" type="number" placeholder="如 200（可选）" style="width: 220px" />
       </el-form-item>
       <el-form-item label="包含文本">
-        <el-input v-model="expected.contains" placeholder="响应体需包含的字符串（可选）" />
+        <el-input v-model="expected.contains" data-t="expected-contains" placeholder="响应体需包含的字符串（可选）" />
       </el-form-item>
       <el-form-item label="耗时上限">
         <el-input v-model="expected.maxTimeMs" type="number" placeholder="毫秒，如 1000（可选）" style="width: 220px" />
@@ -111,7 +111,7 @@
       </el-form-item>
 
       <el-form-item>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button type="primary" data-t="save" :loading="saving" @click="save">保存</el-button>
         <el-button @click="$router.push('/')">取消</el-button>
       </el-form-item>
     </el-form>

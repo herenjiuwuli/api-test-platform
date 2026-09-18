@@ -1,0 +1,57 @@
+name: CI
+
+# M19：把四层测试接进 CI 做回归
+#   ① 静态扫描（前端未声明标识符等 —— 拦「build 过、真机一跑就 ReferenceError」）
+#   ② 构建（后端要托管 web/dist，E2E 依赖它）
+#   ③ 接口测试（vitest，183 条：鉴权 / 断言引擎 / 链路 / 环境 / 分组 / 通知）
+#   ④ UI 测试（Playwright，11 条：路由守卫 / 真实登录 / 单条与分组运行 / 报告 / 增删）
+#
+# ⭐ 不下载浏览器：playwright.config.js 配了 channel: 'chrome'，
+#    用 GitHub runner（ubuntu-latest 镜像自带 Google Chrome stable）已装的 Chrome，省掉几百 MB 下载。
+#
+# 顺序不能乱：静态扫描要在构建前（构建只为产物，扫描抓的是源码问题）；
+#            构建必须在 E2E 前（E2E 打的是构建后的 web/dist）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 装依赖（根目录 + web 各自一份 lock）
+        run: |
+          npm ci
+          npm --prefix web ci
+
+      - name: ① 静态扫描（前端）
+        run: npm run check:frontend
+
+      - name: ② 构建前端产物
+        run: npm run build
+
+      - name: ③ 接口测试（vitest）
+        run: npm test
+
+      - name: ④ UI 测试（Playwright，用系统 Chrome）
+        run: npm run test:e2e
+
+      - name: 失败时上传 Playwright 报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

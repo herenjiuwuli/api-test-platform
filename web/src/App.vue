@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { session, clearSession } from './auth.js'
@@ -109,6 +109,8 @@ const pwdForm = ref({ oldPassword: '', newPassword: '', confirm: '' })
 
 // 刷新后若已有 token，拉一次当前用户补全用户名
 onMounted(async () => {
+  // 页面被销毁（关标签页 / 导航走 / 自动化跑完）时断流，别把订阅留给浏览器回收
+  window.addEventListener('pagehide', disconnectNotifStream)
   if (session.token && !session.username) {
     try {
       const r = await api.me()
@@ -120,6 +122,11 @@ onMounted(async () => {
   if (session.token) await refreshEnvironments()
   if (session.token) await refreshNotif()
   if (session.token) connectNotifStream()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', disconnectNotifStream)
+  disconnectNotifStream()
 })
 
 // 运行通知（M17）：铃铛未读角标 + 弹窗。只拉、标记已读，不编辑不删——和后端一致。
@@ -158,6 +165,23 @@ async function markAll() {
 // EventSource 不能带自定义 header，所以 token 走 query —— 和后端 authGuard 的约定一致。
 // 断线不用自己写重连：EventSource 天生会按 Retry 自动重连，onerror 静默即可。
 let notifStream = null
+
+// 显式断开流。为什么不能只靠浏览器回收：
+//  ① 退出登录后 token 已经清掉了，还留着这条流 = 用失效凭据继续占着服务端订阅；
+//  ② 页面被销毁时主动 close 是应该做的清理，不依赖浏览器的回收时机。
+//     注意：**别指望这条路径去救无头自动化** —— pagehide 在无头 Chrome 关上下文时并不保证触发
+//     （实测验证过：加了 pagehide 清理，Playwright 那条登录用例照样收尾挂住）。
+//     E2E 侧的兜底在 e2e/helpers.js 的 fixture 里（收尾导航 about:blank 拆掉长连接）。
+function disconnectNotifStream() {
+  if (!notifStream) return
+  try {
+    notifStream.close()
+  } catch {
+    // 已经断了就算了，清理动作不该反过来抛错
+  }
+  notifStream = null
+}
+
 function connectNotifStream() {
   if (typeof EventSource === 'undefined' || notifStream) return
   try {
@@ -195,6 +219,7 @@ watch(() => route.path, () => {
 })
 
 function logout() {
+  disconnectNotifStream()
   clearSession()
   router.push('/login')
 }

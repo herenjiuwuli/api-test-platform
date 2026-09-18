@@ -9,13 +9,22 @@
 
       <el-form :model="form" @submit.prevent="onLogin" label-position="top">
         <el-form-item label="用户名">
-          <el-input v-model="form.username" placeholder="请输入用户名" clearable />
+          <el-input v-model="form.username" data-t="username" placeholder="请输入用户名" clearable />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="form.password" type="password" placeholder="请输入密码" show-password @keyup.enter="onLogin" />
+          <el-input
+            v-model="form.password"
+            data-t="password"
+            type="password"
+            placeholder="请输入密码"
+            show-password
+            @keyup.enter="onLogin"
+          />
         </el-form-item>
         <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" style="margin-bottom: 12px" />
-        <el-button type="primary" :loading="loading" native-type="submit" style="width: 100%">登 录</el-button>
+        <el-button data-t="submit" type="primary" :loading="loading" native-type="submit" style="width: 100%">
+          登 录
+        </el-button>
       </el-form>
 
       <div class="extra">

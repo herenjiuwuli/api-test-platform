@@ -1,12 +1,20 @@
 <template>
   <div>
     <div class="toolbar">
-      <el-button type="primary" @click="$router.push('/cases/new')">新建用例</el-button>
-      <el-button @click="aiVisible = true">AI 生成用例</el-button>
-      <el-button :loading="runAllLoading" @click="onRunAll">全部运行</el-button>
-      <el-button :disabled="!selectedGroup" :loading="runGroupLoading" @click="onRunGroup">运行该分组</el-button>
+      <el-button type="primary" data-t="new-case" @click="$router.push('/cases/new')">新建用例</el-button>
+      <el-button data-t="ai-generate" @click="aiVisible = true">AI 生成用例</el-button>
+      <el-button data-t="run-all" :loading="runAllLoading" @click="onRunAll">全部运行</el-button>
+      <el-button
+        data-t="run-group"
+        :disabled="!selectedGroup"
+        :loading="runGroupLoading"
+        @click="onRunGroup"
+      >
+        运行该分组
+      </el-button>
       <el-select
         v-model="selectedGroup"
+        data-t="group-select"
         placeholder="按分组筛选"
         clearable
         style="width: 180px"
@@ -14,14 +22,14 @@
       >
         <el-option v-for="g in groupOptions" :key="g" :label="g" :value="g" />
       </el-select>
-      <el-button @click="load">刷新</el-button>
+      <el-button data-t="refresh" @click="load">刷新</el-button>
       <div class="toolbar-right">
         <el-button :loading="exporting" @click="onExport">导出套件</el-button>
         <el-button @click="openImport">导入套件</el-button>
       </div>
     </div>
 
-    <el-table :data="displayCases" v-loading="loading" border stripe>
+    <el-table :data="displayCases" data-t="case-table" v-loading="loading" border stripe>
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="name" label="名称" min-width="200" show-overflow-tooltip />
       <el-table-column label="方法" width="90">
@@ -50,7 +58,7 @@
     <!-- 单条运行结果 -->
     <el-dialog v-model="resultVisible" title="运行结果" width="640">
       <template v-if="lastResult">
-        <div class="result-head">
+        <div class="result-head" data-t="run-result">
           <el-tag :type="lastResult.pass ? 'success' : 'danger'" size="large">
             {{ lastResult.pass ? '✓ 通过' : '✗ 失败' }}
           </el-tag>
@@ -76,7 +84,7 @@
     <!-- 全部运行汇总 -->
     <el-dialog v-model="allVisible" title="全部运行汇总" width="720">
       <template v-if="allResult">
-        <div class="result-head">
+        <div class="result-head" data-t="run-summary">
           <el-tag :type="allResult.failed === 0 ? 'success' : 'danger'" size="large">
             通过 {{ allResult.passed }} / {{ allResult.total }}
           </el-tag>
