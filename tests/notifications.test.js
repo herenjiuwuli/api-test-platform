@@ -7,12 +7,14 @@
 //   ② runScheduledJob 触发落通知：分组全绿→success、单条死链→warn、指向已删用例→error；
 //   ③ 通知 HTTP 层：列表 / 未读计数 / 标记已读 / 全部已读；
 //   ④ 实时推送（M18）：addNotification 广播给 subscribe 订阅者（含「订阅者抛错不连累落库」），
-//      以及 SSE 端点 /api/notifications/stream 真连一次、收到 hello 后收到 notification 事件。
+//      以及 SSE 端点 /api/notifications/stream 真连一次、收到 hello 后收到 notification 事件；
+//   ⑤ 降噪与保留（M20）：notifyOn=failure 时 success 不落通知（warn/error 照落）、非法 notifyOn
+//      回退 all、通知表自动裁剪只留最近 500 条。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import Fastify from 'fastify'
 import { buildApp } from '../index.js'
 import { createCase, deleteCase } from '../src/cases.js'
-import { createSchedule } from '../src/schedules.js'
+import { createSchedule, updateSchedule } from '../src/schedules.js'
 import { runScheduledJob, stopAllScheduler } from '../src/scheduler.js'
 import { addNotification, listNotifications, unreadCount, markRead, markAllRead, subscribe } from '../src/notifications.js'
 
@@ -121,6 +123,51 @@ describe('定时任务触发落通知（runScheduledJob × notifications）', ()
     const note = items.find((n) => n.level === 'error' && n.target?.includes('M17将删'))
     expect(note).toBeTruthy()
     expect(note.body).toContain('删除')
+  })
+})
+
+describe('通知降噪与保留策略（M20）', () => {
+  it('★ 默认 notifyOn=all（不传也回归 M17 行为）；非法值回退 all；update 可改 failure', () => {
+    const c = okCase('M20校验', 'M20校验组')
+    const s1 = createSchedule({ caseId: c.id, cron: '0 9 * * *' })
+    expect(s1.notifyOn).toBe('all') // 不传 = M17 原行为
+    const s2 = createSchedule({ caseId: c.id, cron: '0 9 * * *', notifyOn: 'hacker' })
+    expect(s2.notifyOn).toBe('all') // 白名单外回退默认——存储层不信任调用方
+    const s3 = updateSchedule(s2.id, { notifyOn: 'failure' })
+    expect(s3.notifyOn).toBe('failure')
+    const s4 = updateSchedule(s2.id, { notifyOn: 'again-bad' })
+    expect(s4.notifyOn).toBe('all') // 更新时同样走白名单
+  })
+
+  it('★ notifyOn=failure：全绿不落 success 通知；断言失败（warn）照落', async () => {
+    okCase('M20绿', 'M20失败组')
+    const s = createSchedule({ group: 'M20失败组', cron: '0 9 * * *', notifyOn: 'failure' })
+    await runScheduledJob(s) // 全绿 → success 在落库前被拦
+    expect(
+      listNotifications().items.find((n) => n.target?.includes('M20失败组')),
+    ).toBeUndefined()
+    // 塞一条死链进同组再跑：runAll 内部按组现拉用例（schedule 对象只是触发器），1 绿 1 红 → warn
+    createCase({
+      name: 'M20红',
+      method: 'GET',
+      url: 'http://127.0.0.1:1/__x',
+      group: 'M20失败组',
+      expected: { status: 200 },
+    })
+    await runScheduledJob(s)
+    const note = listNotifications().items.find(
+      (n) => n.level === 'warn' && n.target?.includes('M20失败组'),
+    )
+    expect(note).toBeTruthy() // 失败侧无论什么模式都通知
+    expect(note.body).toContain('失败 1')
+  })
+
+  it('★ 通知表保留策略：落库自动裁剪，只留最近 500 条', () => {
+    for (let i = 0; i < 505; i++) addNotification({ level: 'info', title: `ret-${i}` })
+    const items = listNotifications({ limit: 1000 }).items
+    expect(items.length).toBe(500) // 老的被裁掉，只留最近 500
+    expect(items[0].title).toBe('ret-504') // 最新在前
+    expect(items.find((n) => n.title === 'ret-0')).toBeUndefined()
   })
 })
 

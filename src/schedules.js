@@ -8,6 +8,14 @@ import { listCases } from './cases.js'
 // 0 不指向任何真实用例；调度时以 group 为准，case_id=0 永远不会被当作「要跑的用例」。
 const GROUP_SCHEDULE_CASE_ID = 0
 
+// M20 通知降噪：任务级「什么情况下发通知」。all = 每次跑完都发（M17 原行为）；
+// failure = 只在失败侧发（warn 断言失败 / error 没跑成）。白名单外的值一律回退 all——
+// 存储层不信任调用方，宁可行为保守也别存进一个调度器不认识的值。
+const NOTIFY_MODES = ['all', 'failure']
+function normalizeNotifyOn(v) {
+  return NOTIFY_MODES.includes(v) ? v : 'all'
+}
+
 export function validateCron(expr) {
   try {
     return cron.validate(expr)
@@ -16,7 +24,7 @@ export function validateCron(expr) {
   }
 }
 
-export function createSchedule({ caseId, group, cron: expr } = {}) {
+export function createSchedule({ caseId, group, cron: expr, notifyOn } = {}) {
   const db = getDb()
   if (!expr || !String(expr).trim()) throw new Error('定时任务 cron 必填')
   if (!validateCron(expr)) throw new Error('定时任务 cron 表达式非法')
@@ -25,9 +33,10 @@ export function createSchedule({ caseId, group, cron: expr } = {}) {
   const caseV = groupV ? GROUP_SCHEDULE_CASE_ID : caseId ? Number(caseId) : null
   if (!groupV && !caseV) throw new Error('定时任务必须指定「用例」或「分组」之一')
   if (groupV && listCases(groupV).length === 0) throw new Error('分组不存在或为空')
+  const notifyV = normalizeNotifyOn(notifyOn)
   const info = db
-    .prepare(`INSERT INTO schedules (case_id, "group", cron) VALUES (?, ?, ?)`)
-    .run(caseV, groupV, String(expr).trim())
+    .prepare(`INSERT INTO schedules (case_id, "group", cron, notify_on) VALUES (?, ?, ?, ?)`)
+    .run(caseV, groupV, String(expr).trim(), notifyV)
   return getSchedule(info.lastInsertRowid)
 }
 
@@ -53,7 +62,7 @@ export function getSchedule(id) {
   return row ? normalize(row) : null
 }
 
-export function updateSchedule(id, { cron: expr, enabled, group, caseId } = {}) {
+export function updateSchedule(id, { cron: expr, enabled, group, caseId, notifyOn } = {}) {
   const db = getDb()
   const cur = getSchedule(id)
   if (!cur) return null
@@ -70,9 +79,10 @@ export function updateSchedule(id, { cron: expr, enabled, group, caseId } = {}) 
       : cur.caseId
   if (!groupV && !caseV) throw new Error('定时任务必须指定「用例」或「分组」之一')
   if (groupV && listCases(groupV).length === 0) throw new Error('分组不存在或为空')
+  const notifyV = notifyOn !== undefined ? normalizeNotifyOn(notifyOn) : cur.notifyOn
   db.prepare(
-    `UPDATE schedules SET cron = ?, enabled = ?, "group" = ?, case_id = ? WHERE id = ?`,
-  ).run(cronV, enabledV, groupV, caseV, id)
+    `UPDATE schedules SET cron = ?, enabled = ?, "group" = ?, case_id = ?, notify_on = ? WHERE id = ?`,
+  ).run(cronV, enabledV, groupV, caseV, notifyV, id)
   return getSchedule(id)
 }
 
@@ -88,6 +98,7 @@ function normalize(row) {
     group: row.group || '',
     cron: row.cron,
     enabled: !!row.enabled,
+    notifyOn: row.notify_on === 'failure' ? 'failure' : 'all',
     createdAt: row.created_at,
   }
 }

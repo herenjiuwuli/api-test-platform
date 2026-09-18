@@ -66,6 +66,10 @@ export async function runScheduledJob(schedule) {
     title = `${target || '定时任务'} 运行异常`
     body = e.message || String(e)
   }
+  // M20 降噪：failure 模式下 success 不落通知——每几分钟跑一次的监控任务，
+  // 「一切正常」不该是人要逐条划掉的消息；warn/error（跑失败/没跑成）永远落。
+  // 注意只在**落库前**拦，运行本体照常执行——降噪 ≠ 不跑。
+  if (level === 'success' && schedule.notifyOn === 'failure') return
   try {
     addNotification({ level, title, body, target })
   } catch {

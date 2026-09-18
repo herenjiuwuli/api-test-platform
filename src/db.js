@@ -121,6 +121,10 @@ function migrate(db) {
   // M15：定时任务也能按「分组」跑（不只单条用例）。分组定时任务的 case_id 用占位 0
   // （SQLite 列仍是 NOT NULL，0 不指向任何真实用例；调度时以 group 为准）。
   addColumn(`ALTER TABLE schedules ADD COLUMN "group" TEXT NOT NULL DEFAULT ''`)
+  // M20：通知降噪。每 5 分钟跑一次的分组任务若成功也发通知，铃铛很快被 success 噪声淹没——
+  // 真实监控的惯例是「成功静默、失败才喊人」。任务级开关（默认 all 保持 M17 行为），失败侧
+  // 指 warn（跑了但有断言失败）+ error（没跑成/用例已删）——这两档无论什么模式都通知。
+  addColumn(`ALTER TABLE schedules ADD COLUMN notify_on TEXT NOT NULL DEFAULT 'all'`)
 }
 
 export function closeDb() {

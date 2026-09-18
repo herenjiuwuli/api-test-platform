@@ -9,6 +9,11 @@ import { getDb } from './db.js'
 // 用 Set 而非 EventEmitter：订阅者天然去重，且取消订阅就是 delete。
 const subscribers = new Set()
 
+// M20 保留策略：通知是运行日志，只增不删的表迟早变成负担——但裁剪不做成接口
+//（调用方「清理日志」和「改写历史」只隔一层窗户纸），而是落库时自动只留最近 N 条。
+// 500 条对单实例自用工具绰绰有余（前端列表一次也只取 50）。
+const RETENTION_LIMIT = 500
+
 /**
  * 订阅新通知。返回取消订阅函数（务必在连接关闭时调用，否则内存泄漏）。
  * @param {(n:object)=>void} fn
@@ -39,6 +44,13 @@ export function addNotification({ level = 'info', title, body = '', target = '' 
   const res = db
     .prepare(`INSERT INTO notifications (level, title, body, target, "read") VALUES (?, ?, ?, ?, 0)`)
     .run(level, title, body, target)
+  // 保留策略：删掉第 RETENTION_LIMIT 条新记录之前的全部旧记录。子查询不足 N 条时
+  // OFFSET 取不到行返回 NULL，`id <= NULL` 恒不成立 → 一条都不删，天然幂等。
+  db.prepare(
+    `DELETE FROM notifications WHERE id <= (
+       SELECT id FROM notifications ORDER BY id DESC LIMIT 1 OFFSET ?
+     )`,
+  ).run(RETENTION_LIMIT)
   const created = getNotification(res.lastInsertRowid)
   emit(created)
   return created

@@ -137,6 +137,9 @@
           <el-option v-for="g in groups" :key="g" :label="g" :value="g" />
         </el-select>
         <el-input v-model="schedForm.cron" placeholder="cron 表达式，如 */5 * * * *" style="flex: 1" />
+        <el-tooltip content="开启后任务跑成功不再发通知，只有断言失败（warn）或没跑成（error）才提醒——监控跑得勤时铃铛不会被「一切正常」刷屏" placement="top">
+          <label class="notify-switch"><el-switch v-model="schedForm.notifyFailure" size="small" /> 只在失败时通知</label>
+        </el-tooltip>
         <el-button type="primary" :loading="schedSaving" @click="onAddSchedule">添加</el-button>
       </div>
       <el-table :data="schedules" border size="small" v-loading="schedLoading">
@@ -148,6 +151,13 @@
           </template>
         </el-table-column>
         <el-table-column prop="cron" label="cron" min-width="140" />
+        <el-table-column label="通知" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.notifyOn === 'failure' ? 'warning' : 'info'" size="small">
+              {{ row.notifyOn === 'failure' ? '只看失败' : '全部' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '启用' : '停用' }}</el-tag>
@@ -177,7 +187,7 @@ const schedSaving = ref(false)
 const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], byEnv: [], byGroup: [], recentRuns: [] })
 const schedules = ref([])
 const cases = ref([])
-const schedForm = ref({ target: 'case', caseId: null, group: '', cron: '' })
+const schedForm = ref({ target: 'case', caseId: null, group: '', cron: '', notifyFailure: false })
 
 // 从用例列表派生出可选分组（分组标签来自每条用例的 group 字段）
 const groups = computed(() => {
@@ -216,10 +226,11 @@ async function onAddSchedule() {
   if (!form.cron.trim()) return ElMessage.warning('请填写 cron 表达式')
   schedSaving.value = true
   try {
+    const notifyOn = form.notifyFailure ? 'failure' : 'all'
     const payload =
       form.target === 'group'
-        ? { group: form.group, cron: form.cron.trim() }
-        : { caseId: form.caseId, cron: form.cron.trim() }
+        ? { group: form.group, cron: form.cron.trim(), notifyOn }
+        : { caseId: form.caseId, cron: form.cron.trim(), notifyOn }
     await api.createSchedule(payload)
     ElMessage.success('已添加定时任务')
     schedForm.value.cron = ''
@@ -270,5 +281,6 @@ onMounted(load)
 .pass-text { color: #67c23a; font-weight: 600; }
 .fail-text { color: #f56c6c; font-weight: 600; }
 .detail-text { font-size: 12px; color: #909399; }
-.sched-form { display: flex; gap: 10px; margin-bottom: 12px; }
+.sched-form { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+.notify-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--el-text-color-regular); cursor: pointer; white-space: nowrap; }
 </style>

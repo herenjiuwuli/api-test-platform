@@ -5,7 +5,7 @@
 
 ## 一、一句话定位（简历 headline / 自我介绍用）
 
-一个自用接口回归与监控工具：存用例 → 手动 / 定时跑 → 多维度断言（状态码 / 包含 / 耗时 / JSONPath / **响应头**）→ 出报告 → 带账号体系 → 一键容器化部署。技术栈 Fastify5 + Node 内置 SQLite + Vue3/Element Plus + node-cron + **Playwright（自己测自己的 11 条 UI 用例）**，**183 例接口测试 + 11 条 E2E 全绿**。**配套一个「被测系统」office-oa，用这个平台把它测穿了。**
+一个自用接口回归与监控工具：存用例 → 手动 / 定时跑 → 多维度断言（状态码 / 包含 / 耗时 / JSONPath / **响应头**）→ 出报告 → 带账号体系 → 一键容器化部署。技术栈 Fastify5 + Node 内置 SQLite + Vue3/Element Plus + node-cron + **Playwright（自己测自己的 11 条 UI 用例）**，**186 例接口测试 + 11 条 E2E 全绿**。**配套一个「被测系统」office-oa，用这个平台把它测穿了。**
 
 ## 二、简历可写的 bullet（每条标防御深度）
 
