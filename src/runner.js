@@ -17,13 +17,15 @@ import { applyExtract, createVarBag, missingVarNote, renderTemplate } from './va
  * 执行单个用例。
  * @param {{id?:number,name?:string,method?:string,url:string,headers?:object,body?:any,
  *          bodyType?:'json'|'raw'|'form-data',files?:Array<{name:string,fixture?:string,base64?:string,filename?:string,contentType?:string}>,
- *          expected?:{status?:number,contains?:string,maxTimeMs?:number,jsonChecks?:Array<{path:string,op:string,value?:any}>},
+ *          expected?:{status?:number,contains?:string,maxTimeMs?:number,jsonChecks?:Array<{path:string,op:string,value?:any}>,
+ *                     headers?:Array<{name:string,op:'exists'|'eq'|'contains',value?:any}>},
  *          extract?:Array<{name:string,path:string}>}} def
  * @param {{persist?:boolean,vars?:Record<string,string>,env?:object|null}} opts persist=true 时把结果写 runs 表；
  *        vars 是**共享变量袋**（run-all 会一直传同一个，单跑不传则用临时空袋）；
  *        env 不传 = 用当前环境；传 null = 显式不用环境（测试用）
  * jsonChecks op 支持：eq / ne / gt / gte / lt / lte / contains / exists
  * 多匹配（[*]）语义：contains = 任一命中；exists = 有无匹配；其余按首个匹配值断言。
+ * headers（M14）op 支持：exists（在不在）/ eq（值全等）/ contains（值含子串）
  */
 export async function runCase(def, { persist = true, vars, env } = {}) {
   const started = performance.now()
@@ -56,7 +58,20 @@ export async function runCase(def, { persist = true, vars, env } = {}) {
       body: req.body,
     })
     const status = res.status
-    const text = await res.text()
+    // ⚠️ 必须**自己按字节解码**，不能用 `res.text()` —— Fetch 规范的 text() 会按 UTF-8
+    //    「decode with BOM removal」把**开头的 BOM 吃掉**。于是「导出的 CSV 有没有带 BOM」
+    //    这类断言永远写不出来（写 `contains: '\ufeff…'` 会永远假失败，且看不出为什么）。
+    //    实测踩到：M14 补头断言时顺手写的 BOM 用例红了，才发现请求本身是对的、是被解码环节吃掉的。
+    //    代价：解析 JSON 的地方要自己剥一下 BOM 前缀（见 jsonText）。
+    const rawBytes = Buffer.from(await res.arrayBuffer())
+    const text = rawBytes.toString('utf8')
+    /** 只在「解析」时剥 BOM：`text` 保留 BOM 供 contains 断言，JSON.parse 则不接受前置 BOM */
+    const jsonText = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+    // 响应头（M14）。以前这里只取 body —— 于是「导出一个 CSV，Content-Type 对不对、
+    // Content-Disposition 有没有、BOM 在不在」这类断言**根本写不出来**。
+    // 能力边界是被 office-oa 的导出功能逼出来的（同 M8 的 multipart）。
+    // 摊平成小写键的对象：查头名大小写不敏感（HTTP 头本来就不区分大小写）。
+    const responseHeaders = Object.fromEntries(res.headers.entries())
     const durationMs = Math.round(performance.now() - started)
 
     const exp = def.expected || {}
@@ -83,7 +98,7 @@ export async function runCase(def, { persist = true, vars, env } = {}) {
     if (Array.isArray(exp.jsonChecks) && exp.jsonChecks.length) {
       let parsed = null
       try {
-        parsed = JSON.parse(text)
+        parsed = JSON.parse(jsonText) // 用剥过 BOM 的文本：JSON.parse 不接受前置 BOM
       } catch {
         parsed = null
       }
@@ -105,8 +120,29 @@ export async function runCase(def, { persist = true, vars, env } = {}) {
       }
     }
 
+    // 响应头断言（M14）：expected.headers = [{name, op, value}]
+    // 三个操作符的语义，和 JSON 断言刻意保持一致（同一套心智，不用记两套）：
+    //   exists   → 这个头在不在（不看值）
+    //   eq       → 值全等
+    //   contains → 值包含子串（如 content-type 只关心是不是 text/csv、后面带不带 charset）
+    if (Array.isArray(exp.headers) && exp.headers.length) {
+      for (const check of exp.headers) {
+        if (!check || !check.name) continue
+        const key = String(check.name).toLowerCase()
+        const actual = responseHeaders[key] // 头名不区分大小写，所以统一下标查找
+        if (!evalHeaderCheck(actual, check)) {
+          pass = false
+          detail.push(
+            `响应头 ${check.name} ${check.op} ${JSON.stringify(check.value)} 不成立（实际 ${
+              actual === undefined ? '不存在' : JSON.stringify(actual)
+            }）`,
+          )
+        }
+      }
+    }
+
     // ② 抽变量：无论断言成不成功都抽（有些接口「失败响应里也带信息」，比如 401 里的 reason）
-    const extracted = applyExtract(text, def.extract)
+    const extracted = applyExtract(jsonText, def.extract)
     Object.assign(bag, extracted)
 
     const result = {
@@ -116,6 +152,9 @@ export async function runCase(def, { persist = true, vars, env } = {}) {
       detail,
       extracted,
       bodyPreview: text.slice(0, 200),
+      // 带上实际响应头：头断言红了的时候，「期望 X 实际没有」和「实际是别的东西」是两种问题，
+      // 光看 detail 那句话分不清（尤其是一个头出现过又消失的场景）
+      headers: responseHeaders,
       // 这条用例是在哪个环境上跑的 —— 结果里带上，报告才说得清「这次打的是谁」
       env: envSnapshot(activeEnv),
     }
@@ -206,6 +245,22 @@ function evalJsonCheck(first, vals, { op, value }) {
 function looseEq(a, b) {
   if (typeof a === 'number' && typeof b === 'number') return a === b
   return String(a) === String(b)
+}
+
+// 响应头断言求值（M14）。
+// 语义与 evalJsonCheck 保持一致：exists = 在不在；eq = 全等；contains = 包含子串。
+// ⚠️ 头不存在时：eq / contains 一定失败（拿 undefined 比什么都是假的），exists 失败 —— 也就是「默认严格」。
+function evalHeaderCheck(actual, { op, value }) {
+  switch (op) {
+    case 'exists':
+      return actual !== undefined
+    case 'eq':
+      return actual !== undefined && String(actual) === String(value)
+    case 'contains':
+      return actual !== undefined && String(actual).includes(String(value))
+    default:
+      return false
+  }
 }
 
 function numeric(x) {

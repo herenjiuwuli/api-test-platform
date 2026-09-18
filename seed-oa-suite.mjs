@@ -55,6 +55,11 @@ const upload = (url, tokenVar, files, fields = {}) => ({
   files,
 })
 
+// M4：导出注入用例的「坏输入」—— 标题本身就是一个 CSV 公式载荷。
+// 真实威胁不是「我这条单显示难看」，而是：这条单被导出成 CSV、审批人用 Excel 打开，
+// 就在**审批人的机器上**执行了申请人写的东西。
+const INJECT_TITLE = "=cmd|'/c calc'!A1"
+
 const cases = [
   // ── A. 基础设施与鉴权入口 ─────────────────────────────────────────────
   {
@@ -503,11 +508,103 @@ const cases = [
     headers: auth('token_emp'),
     expected: { status: 404, contains: '通知不存在' },
   },
+
+  // ── I. 导出 CSV（M4）：闭环里第一次「被测系统倒逼工具长能力」────────────────
+  // 这一段不是「再加几条用例」，而是平台的能力边界被顶出来了：
+  //   ① expected 原来只有 status / contains / maxTimeMs / jsonChecks —— **断言不了响应头**；
+  //   ② `res.text()` 按 Fetch 规范会吃掉响应体开头的 BOM，所以「导出有没有带 BOM」也断言不了。
+  // 两条这一轮都补掉了（api-test-platform M14）。闭环的意义就在这：SUT 长出新面，
+  // 工具跟着长出新的断言能力 —— 而不是「验证不了就换个方式糊过去」。
+  {
+    // ★ 先造一条「标题就是 CSV 公式载荷」的采购申请 —— 注入防护需要一个真实的坏输入
+    name: `${TAG}53 建一条标题为公式载荷的采购申请（抽 rid_inject）`,
+    ...post('/api/requests', 'token_emp', {
+      type: 'purchase',
+      title: INJECT_TITLE,
+      formData: { item: '一次性雨衣 100 件', amount: 300, reason: '导出注入用例' },
+    }),
+    expected: { status: 201, jsonChecks: [{ path: '$.title', op: 'eq', value: INJECT_TITLE }] },
+    extract: [{ name: 'rid_inject', path: '$.id' }],
+  },
+  {
+    name: `${TAG}54 提交这条载荷单 → 200`,
+    ...post('/api/requests/{{rid_inject}}/submit', 'token_emp', {}),
+    expected: { status: 200, jsonChecks: [{ path: '$.status', op: 'eq', value: 'pending' }] },
+  },
+  {
+    // ⭐ 头断言（M14 新能力）：导出必须是 text/csv
+    //   用 contains 而不是 eq：服务端回的是 `text/csv; charset=utf-8`，
+    //   写 eq 'text/csv' 会红 —— 而「该写 eq 还是 contains」本身就是断言设计的取舍题
+    name: `${TAG}55 导出：Content-Type 含 text/csv（⭐头断言）`,
+    method: 'GET',
+    url: `{{base}}/api/requests/export.csv`,
+    headers: auth('token_emp'),
+    expected: {
+      status: 200,
+      headers: [{ name: 'content-type', op: 'contains', value: 'text/csv' }],
+    },
+  },
+  {
+    // ⭐ 头断言：必须是「附件下载」，且文件名来自服务端（前端不自己编名字）
+    name: `${TAG}56 导出：Content-Disposition 是 attachment + 带文件名（⭐头断言）`,
+    method: 'GET',
+    url: `{{base}}/api/requests/export.csv`,
+    headers: auth('token_emp'),
+    expected: {
+      status: 200,
+      headers: [
+        { name: 'Content-Disposition', op: 'contains', value: 'attachment' },
+        { name: 'Content-Disposition', op: 'contains', value: 'filename="requests-' },
+      ],
+    },
+  },
+  {
+    // ⭐⭐ BOM：以前这条**写不出来** —— Fetch 的 text() 会把 BOM 吃掉，看什么都是「没有 BOM」。
+    //    现在执行器自己按字节解码，BOM 就留在 text 里了。
+    //    顺带把表头顺序也钉住：`\ufeff单据号,类型,标题` 这一段连着断言，一次证明两件事。
+    name: `${TAG}57 导出体以 UTF-8 BOM 开头，且首行是表头（⭐⭐BOM 断言）`,
+    method: 'GET',
+    url: `{{base}}/api/requests/export.csv`,
+    headers: auth('token_emp'),
+    expected: { status: 200, contains: '\ufeff单据号,类型,标题,申请人' },
+  },
+  {
+    // ⭐⭐ 公式注入：标题里的 `=cmd|...` 到了 CSV 里必须**带单引号前缀**（Excel 才会当文本）。
+    //    反证（「不能出现裸公式」）平台现在还表达不了 —— 断言模型只有正向断言，没有 notContains。
+    //    所以那半边靠 office-oa 自己的单测（tests/export.test.js）兜底。
+    name: `${TAG}58 导出：载荷标题被加前缀，Excel 不会执行（⭐⭐公式注入）`,
+    method: 'GET',
+    url: `{{base}}/api/requests/export.csv?status=pending`,
+    headers: auth('token_emp'),
+    expected: { status: 200, contains: `'${INJECT_TITLE}` },
+  },
+  {
+    // ⭐ 数据范围（正向表达）：有 request:read:all 的角色能导出到**别人**的单据。
+    //    用「链上那条采购申请」当探针 —— 它不是 ops02 提的，只有全量范围才看得到。
+    name: `${TAG}59 管理员导出能看到别人的单据（request:read:all 生效）`,
+    method: 'GET',
+    url: `{{base}}/api/requests/export.csv`,
+    headers: auth('token_admin'),
+    expected: { status: 200, contains: '平台链式用例-采购申请' },
+  },
+  {
+    // ⭐ 数据范围的反面，用**正向**方式表达：外部门经理（没有 read:all）一条都导不到。
+    //    为什么用 X-Total-Count 而不是「不含某某」：断言模型没有负向断言，
+    //    而「条数恰好是 0」本身就是「一条别人的都没给」的等价说法，且能被正向断言钉住。
+    name: `${TAG}60 无全量权限的经理导出 0 条（数据范围收敛）`,
+    method: 'GET',
+    url: `{{base}}/api/requests/export.csv`,
+    headers: auth('token_other_mgr'),
+    expected: {
+      status: 200,
+      headers: [{ name: 'X-Total-Count', op: 'eq', value: '0' }],
+    },
+  },
 ]
 
 // ── M12：按 OA-NN 编号给每条用例打上业务分组标签 ───────────────────────
 // 分组用于平台的「列表筛选 / 按组运行 / 报告按组看通过率」。一个平台里常挂多个被测系统的用例，
-// 这里把 OA 这 52 条按业务主题收成 8 组（A 入口鉴权 → H 站内通知）。
+// 这里把 OA 这 60 条按业务主题收成 9 组（A 入口鉴权 → I 导出）。
 // 用编号映射而非按数组下标切，是因为各段条数以后可能微调，而「OA-18 属于审批引擎」这条事实不会变。
 function groupOf(name) {
   const m = String(name).match(/OA-(\d+)/)
@@ -520,7 +617,8 @@ function groupOf(name) {
   if (n <= 29) return '登出令牌'
   if (n <= 36) return '附件边界'
   if (n <= 44) return '附件全周期'
-  return '站内通知'
+  if (n <= 52) return '站内通知'
+  return '导出'
 }
 for (const c of cases) c.group = groupOf(c.name)
 
@@ -545,7 +643,7 @@ for (const c of cases) createCase(c)
 
 console.log(`[oa-suite] 当前环境「${ENV_NAME}」→ ${env.baseUrl}（用例里写 {{base}}，换环境不用改用例）`)
 console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条、旧执行记录 ${removedRuns} 条）`)
-console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知`)
+console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知/导出`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
-console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态 / ${TAG}45 引擎挂钩发通知 / ${TAG}47 通知 round 快照 / ${TAG}51 通知写路径 404`)
+console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态 / ${TAG}45 引擎挂钩发通知 / ${TAG}47 通知 round 快照 / ${TAG}55 导出的 Content-Type（头断言） / ${TAG}57 BOM / ${TAG}58 CSV 公式注入`)

@@ -1,6 +1,6 @@
 # API 自动化测试平台
 
-> 面向全栈 / 测试运维岗位的简历项目。**M1–M6 全部完成**：存用例 → 手动/定时跑 → JSONPath 断言 → 出报告 → 账号鉴权 → 单端口部署。
+> 面向全栈 / 测试运维岗位的简历项目。**M1–M14 已完成**：存用例 → 手动/定时跑 → 多维度断言（状态码/包含/耗时/JSONPath/**响应头**）→ 出报告 → 账号鉴权 → 单端口部署 → 环境变量集 → 套件导出导入 → 用例分组 → 删用例连带清理。
 > 背景：实习每天手动点接口验证采集脚本，于是造一个能「存用例 → 手动/定时跑 → 出报告 → 账号体系 → 一键部署」的自用测试工具。
 
 ## 技术栈
@@ -9,7 +9,7 @@
 - 前端：**Vue3 + Vite + Element Plus** + vue-router + axios（`web/` 子目录）
 - 测试：**Vitest**
 
-## 当前能力（M1–M8）
+## 当前能力（M1–M14）
 
 - **鉴权（M4，零依赖实现）**：
   - 密码哈希：Node 内置 `crypto.scrypt`（加盐 + `timingSafeEqual` 防时序攻击）
@@ -22,9 +22,10 @@
   - 前端 `web/dist` 构建后由 Fastify **同源托管**（`/*` 静态路由 + SPA 回退），部署只需一个端口（默认 3001），无跨域
   - 提供 `Dockerfile` + `docker-compose.yml` + `DEPLOY.md`（Docker / VPS / Railway / Render），含 Vercel 不适用说明（SQLite 有状态，需持久卷）
   - 数据持久化在 `data/app.db`，容器/主机挂卷即可重启不丢
-- 用例模型：`name / method / url / headers / body / bodyType(json|raw|form-data) / files / expected(status, contains, maxTimeMs, jsonChecks)`
-- 执行引擎 `runCase`：发请求 → 按 expected 断言 → 返回 `{pass, status, durationMs, detail, bodyPreview}`
+- 用例模型：`name / method / url / headers / body / bodyType(json|raw|form-data) / files / group / expected(status, contains, maxTimeMs, jsonChecks, **headers**)`
+- 执行引擎 `runCase`：发请求 → 按 expected 断言 → 返回 `{pass, status, durationMs, detail, bodyPreview, extracted, headers, env}`
 - **JSONPath 断言（自写求值器，未用第三方库）**：`expected.jsonChecks` = `[{path, op, value}]`，支持 `$.a.b / $.arr[0] / $.arr[*] / .length` 路径 + `eq / ne / gt / gte / lt / lte / contains / exists` 操作符
+- **响应头断言（M14）**：`expected.headers` = `[{name, op, value}]`，头名**大小写不敏感**，操作符 `exists / eq / contains`（刻意比 JSON 少 —— 头是单个字符串，没有数值语义，也不给 `ne`：头不存在时「不等于」会变成通过，正好是最容易骗过自己的那种断言）
 - **定时任务（node-cron）**：用例 + cron 表达式 → 到点自动执行并落执行记录；可启停/删除，重启自动恢复
 - **报告**：`/api/reports/summary` 聚合（总用例/总执行/通过率/按用例统计/**按分组统计**/按运行环境统计/最近记录）
 - HTTP 接口：
@@ -38,7 +39,7 @@
   - `GET /api/suite/export`（导成套件 JSON，直接下载）、`POST /api/suite/import?onConflict=rename|overwrite|skip`（导入套件，M11）
   - `GET /api/schedules`、`POST /api/schedules`、`PUT /api/schedules/:id`、`DELETE /api/schedules/:id`
   - `GET /api/runs?caseId=&limit=`、`GET /api/reports/summary`
-- 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行/**按分组筛选·运行**/套件导出·导入 + 分组标签）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**/**分组**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/**按分组汇总**/按运行环境汇总/执行明细/**定时任务管理**）
+- 前端（`web/`）：登录页 + 用例列表（CRUD/单条运行/全部运行/**按分组筛选·运行**/套件导出·导入 + 分组标签）+ **请求编辑器**（方法/URL/请求头/请求体/状态码·包含·耗时·**JSONPath 断言**·**响应头断言**/**分组**编辑）+ 运行结果弹窗 + **报告页**（统计卡片/按用例汇总/**按分组汇总**/按运行环境汇总/执行明细/**定时任务管理**）
 - 数据持久化：用例 `test_cases`、执行记录 `runs`、定时任务 `schedules`、用户 `users`
 
 ## 快速开始
@@ -60,20 +61,20 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 145 例全绿（全离线）
+npm test           # vitest 158 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
 测穿配套的被测系统（闭环）：
 
 ```bash
-npm run seed:oa    # 写入 52 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面 + 附件全生命周期 + 站内通知）
+npm run seed:oa    # 写入 60 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件边界面 + 附件全生命周期 + 站内通知 + 导出）
                    # 同时定义并选中「当前环境」（地址取 OA_BASE，默认 http://127.0.0.1:3200）
 npm run test:oa    # 让平台去打当前环境指向的 office-oa（会先把环境打印出来）
                    # 等价于 POST /api/run-all {"prefix":"OA-"}；任一条失败即以非 0 退出，可挂 CI
 ```
 
-> ⭐ 这条闭环（含六个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界 → 已在 M8 补掉** / **变量缺失提示被异常分支吃掉** / **会撒谎的环境徽标**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
+> ⭐ 这条闭环（含八个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界 → 已在 M8 补掉** / **变量缺失提示被异常分支吃掉** / **会撒谎的环境徽标** / **「配置是活的、历史是死的」** / **只能读响应体的能力边界 → 已在 M14 补掉，顺带撞出 `res.text()` 会吃掉 BOM**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
 
 ## 鉴权说明（M4）
 
@@ -263,6 +264,26 @@ npm run clean:orphans -- --yes   # 真删，删完复查「剩余 0 条」
 
 实测：清理前 791 条 → 清理后 **0 条**，剩余执行记录全部能对上活着的用例（清理前先 `cp data/app.db data/backups/…` 并用只读连接验证备份可读）。
 
+## 响应头断言（M14）
+
+给 office-oa 加「单据导出 CSV」时，平台的**第二个能力边界**被顶出来了：执行器从前**只读 `res.text()`，从不碰 `res.headers`** ——
+于是「导出的 `Content-Type` 对不对、`Content-Disposition` 是不是 `attachment`、文件带没带 BOM」这类断言**一个字都写不出**。
+（和 M8 的 multipart 同源：能力边界不是设计出来的，是被一个真实需求逼出来的。区别是 M8 在**请求侧**，这次在**响应侧**。）
+
+**改动一：能读头。** 执行器把 `res.headers.entries()` 摊平成**小写键**对象放进结果（HTTP 头本就不区分大小写）；
+`expected` 新增 `headers:[{name, op, value}]`，`op` **复用**已有的 `eq / contains / exists` —— 不新造一套操作符。
+编辑器补一个「响应头断言」编辑区。
+
+**改动二：拿到字节。** 补完头还不够 —— BOM 依然断言不了，因为 **`res.text()` 按 Fetch 规范会吃掉开头的 BOM**，
+而且是**静默地吃**：不报错，只会永远红（断言方向写反了甚至会假绿）。只能绕开 `res.text()`，
+按 `arrayBuffer()` 自己解码 UTF-8，BOM 才留得住。
+
+> ⭐ 改动二不是设计出来的，是**跑测试时红出来的**：写了一条「响应体以 BOM 开头」的用例，真机上永远红，
+> 回头才发现问题在 `res.text()`，不在导出功能。**又一次先看见「红」，才看见「为什么」。**
+
+实测：vitest **158 例**（`tests/headerAssert.test.js` 13 例，含「头名大小写不敏感」「头不存在时 `eq` 判失败」）；
+闭环套件 I 段 8 条（OA-53～60）全用新断言跑通，`test:oa` **60/60**。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
@@ -280,16 +301,17 @@ npm run clean:orphans -- --yes   # 真删，删完复查「剩余 0 条」
 | **M11** | **套件导出 / 导入**：把「用例 + 环境」打成一个能带走的 JSON（**敏感头的值脱敏、顺序即串链顺序、不带本地 id**），导入支持 rename / overwrite / skip 三种冲突策略，坏条目不影响其余 | ✅ 已完成（132 例 + OA 44 条） |
 | **M12** | **用例分组**：`group` 业务标签（列表筛选 / 按组运行 / 报告按组汇总），套件导入导出保留分组，编辑器可填分组 | ✅ 已完成（139 例 + OA 52 条） |
 | **M13** | **删用例的连带清理**：删用例连带删执行记录与定时任务（同一事务，并停掉内存里的 cron），`deleteCase` 返回连带条数供前端如实提示；两个 seed 脚本补上执行记录清理；新增 `npm run clean:orphans` 扫尾历史遗留（实测清掉 **791 条**孤儿） | ✅ 已完成（145 例 + OA 52 条） |
+| **M14** | **响应头断言**：执行器读 `res.headers` + `expected.headers=[{name,op,value}]`（`op` 复用 eq/contains/exists，头名大小写不敏感）；顺带**绕开 `res.text()` 自己按字节解码**（否则连 BOM 都断言不了）→ 让 office-oa 新开的「单据导出 CSV」这一面（头 / BOM / 表头 / 公式注入）也能被断言 | ✅ 已完成（158 例 + OA 60 条） |
 
 ### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M13 逐轮 + 踩坑 12 条 |
-| [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md) | 闭环记录：用本平台测穿 office-oa 的全过程 + 六个真实发现 |
+| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M14 逐轮 + 踩坑 13 条 |
+| [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md) | 闭环记录：用本平台测穿 office-oa 的全过程 + 八个真实发现 |
 | [`docs/面试弹药-api-test-platform.md`](docs/面试弹药-api-test-platform.md) | 讲什么：10 个技术亮点 + 16 道深挖题 + 5 个「工具自己被抓出来的缺陷」 |
 | [`docs/简历弹药-api-test-platform.md`](docs/简历弹药-api-test-platform.md) | 简历上写什么：bullet + 18 项「我改过的点」shortlist + 防御深度 |
-| [`docs/关源码复现-api-test-platform.md`](docs/关源码复现-api-test-platform.md) | **会不会写**：10 道「关掉源码写出来」练习（含示范轮 + 评分标准 + 错题本模板） |
+| [`docs/关源码复现-api-test-platform.md`](docs/关源码复现-api-test-platform.md) | **会不会写**：11 道「关掉源码写出来」练习（含示范轮 + 评分标准 + 错题本模板） |
 
 ## 目录
 
@@ -306,15 +328,15 @@ src/multipart.js  手搓 multipart/form-data 包体 + 文件字段解析（bound
 src/fixtures.js   内置文件夹具（PNG / PDF / 伪装 exe），字节写进代码保证可重复（M8）
 src/environments.js 环境变量集：{{base}} 来源、当前环境（settings 一行）、环境级默认请求头（M9）
 src/suite.js      套件导出/导入：脱敏（只抹字面凭据，保留 {{变量}}）、按串链顺序导出、三种冲突策略（M11）
-src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks 断言 + 变量渲染/抽取 + multipart 组包 + 环境注入）
+src/runner.js     用例执行引擎（status/contains/maxTimeMs/jsonChecks/**headers** 断言 + 变量渲染/抽取 + multipart 组包 + 环境注入 + **按字节解码响应**）
 src/schedules.js  定时任务 CRUD（cron 校验）
 src/scheduler.js  node-cron 调度器（注册/启停/恢复）
 src/reports.js    执行记录查询 + 报告聚合
-seed-oa-suite.mjs office-oa 用例套件（52 条 + 按 A–H 段打 `group` 分组，用例链 + 附件边界面 + 附件全生命周期 + 站内通知；并定义当前环境）— npm run seed:oa
+seed-oa-suite.mjs office-oa 用例套件（60 条 + 按 A–I 段打 `group` 分组，用例链 + 附件边界面 + 附件全生命周期 + 站内通知 + 单据导出；并定义当前环境）— npm run seed:oa
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
 scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
 scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js  共 145 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js  共 158 例，全离线
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
 scripts/m11-suite-ui-check.mjs   套件导出/导入验证（接口层脱敏 + 真机层真的选文件导入；跑完自动清场）
@@ -328,9 +350,9 @@ web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端�
   src/views/CaseEditor.vue 请求编辑器（含 JSON 断言编辑）
   src/views/Reports.vue    报告页（统计/明细/定时任务管理）
 docs/             面试与讲解材料（诚实口径，详见上面「面试材料」表）
-  docs/项目全讲.md                  项目讲解（M1–M13 + 踩坑 12 条）
-  docs/测穿-office-oa-闭环.md        闭环记录 + 六个真实发现
+  docs/项目全讲.md                  项目讲解（M1–M14 + 踩坑 13 条）
+  docs/测穿-office-oa-闭环.md        闭环记录 + 八个真实发现
   docs/面试弹药-api-test-platform.md  亮点 / 深挖题 / 自曝缺陷
   docs/简历弹药-api-test-platform.md  简历 bullet / 我改过的点 shortlist
-  docs/关源码复现-api-test-platform.md 关源码复现练习（10 题 + 示范轮 + 评分标准）
+  docs/关源码复现-api-test-platform.md 关源码复现练习（11 题 + 示范轮 + 评分标准）
 ```

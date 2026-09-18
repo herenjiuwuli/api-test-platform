@@ -93,6 +93,23 @@
         <p class="json-hint">路径：$.a.b / $.arr[0] / $.arr[*] / .length ｜ 操作符：eq ne gt gte lt lte contains exists</p>
       </el-form-item>
 
+      <el-form-item label="响应头断言">
+        <div v-for="(h, i) in headerRows" :key="i" class="kv-row">
+          <el-input v-model="h.name" placeholder="头名 如 content-type" style="width: 220px" />
+          <el-select v-model="h.op" style="width: 120px">
+            <el-option v-for="o in headerOps" :key="o" :label="o" :value="o" />
+          </el-select>
+          <el-input v-model="h.value" placeholder="期望值（exists 可不填）" style="flex: 1" />
+          <el-button text type="danger" @click="headerRows.splice(i, 1)">移除</el-button>
+        </div>
+        <el-button size="small" @click="headerRows.push({ name: '', op: 'contains', value: '' })">
+          + 添加响应头断言
+        </el-button>
+        <p class="json-hint">
+          头名不区分大小写 ｜ 操作符：exists（在不在）eq（值全等）contains（值含子串）
+        </p>
+      </el-form-item>
+
       <el-form-item>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
         <el-button @click="$router.push('/')">取消</el-button>
@@ -119,6 +136,9 @@ const isEdit = computed(() => !!route.params.id)
 
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 const jsonOps = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'exists']
+// 响应头断言的操作符**刻意比 JSON 少**：头是单个字符串，没有 gt/lt 这种数值语义，
+// 也不该有 ne（「不等于」在不存在的头上会变成「通过」，正好是最容易骗过自己的那种断言）
+const headerOps = ['exists', 'eq', 'contains']
 
 // M8：请求体类型与文件夹具的可选值来自后端（唯一事实来源），这里只留一份兜底
 const bodyTypes = ref(['json', 'raw', 'form-data'])
@@ -145,6 +165,8 @@ const bodyLabel = computed(() => (bodyType.value === 'form-data' ? '文本字段
 const form = ref({ name: '', method: 'GET', url: '', group: '' })
 const headersRows = ref([{ key: '', value: '' }])
 const jsonChecksRows = ref([{ path: '', op: 'eq', value: '' }])
+// 默认空：绝大多数用例没有头断言，给它留一行空输入框只是噪音
+const headerRows = ref([])
 const bodyText = ref('')
 const expected = ref({ status: '', contains: '', maxTimeMs: '' })
 const saving = ref(false)
@@ -177,6 +199,7 @@ function resetForm() {
   form.value = { name: '', method: 'GET', url: '', group: '' }
   headersRows.value = [{ key: '', value: '' }]
   jsonChecksRows.value = [{ path: '', op: 'eq', value: '' }]
+  headerRows.value = []
   bodyText.value = ''
   bodyType.value = 'json'
   fileRows.value = []
@@ -218,6 +241,11 @@ async function load() {
     ? c.expected.jsonChecks
     : [{ path: '', op: 'eq', value: '' }]
   ).map((j) => ({ path: j.path || '', op: j.op || 'eq', value: j.value !== undefined ? String(j.value) : '' }))
+  headerRows.value = (c.expected?.headers || []).map((h) => ({
+    name: h.name || '',
+    op: h.op || 'contains',
+    value: h.value !== undefined ? String(h.value) : '',
+  }))
 }
 
 function buildPayload() {
@@ -229,6 +257,10 @@ function buildPayload() {
     .filter((j) => j.path && j.path.trim())
     .map((j) => ({ path: j.path.trim(), op: j.op, value: j.value }))
   if (checks.length) exp.jsonChecks = checks
+  const hchecks = headerRows.value
+    .filter((h) => h.name && h.name.trim())
+    .map((h) => ({ name: h.name.trim(), op: h.op, value: h.value }))
+  if (hchecks.length) exp.headers = hchecks
 
   const payload = {
     name: form.value.name.trim(),
