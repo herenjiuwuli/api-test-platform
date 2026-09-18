@@ -45,7 +45,8 @@ export function getDb() {
     );
     CREATE TABLE IF NOT EXISTS schedules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      case_id INTEGER NOT NULL,
+      case_id INTEGER,
+      "group" TEXT NOT NULL DEFAULT '',
       cron TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -104,6 +105,9 @@ function migrate(db) {
   // prefix 是按名字前缀切（跑「OA-」这一坨），group 是按语义标签切（跑「审批引擎」这一主题）。
   // 注意 group 是 SQL 保留字，建列 / 引用一律加双引号。
   addColumn(`ALTER TABLE test_cases ADD COLUMN "group" TEXT NOT NULL DEFAULT ''`)
+  // M15：定时任务也能按「分组」跑（不只单条用例）。分组定时任务的 case_id 用占位 0
+  // （SQLite 列仍是 NOT NULL，0 不指向任何真实用例；调度时以 group 为准）。
+  addColumn(`ALTER TABLE schedules ADD COLUMN "group" TEXT NOT NULL DEFAULT ''`)
 }
 
 export function closeDb() {

@@ -9,8 +9,8 @@
 //   POST /api/cases/:id/run       执行单个用例（持久化结果；不参与用例链）
 //   POST /api/run-all             执行全部用例（按创建顺序组成用例链，共享变量袋，持久化 + 返回汇总）
 //   GET  /api/schedules           定时任务列表
-//   POST /api/schedules           新建定时任务 {caseId, cron}
-//   PUT  /api/schedules/:id       更新定时任务（cron/enabled）
+//   POST /api/schedules           新建定时任务 {caseId, group?, cron}（caseId 与 group 二选一）
+//   PUT  /api/schedules/:id       更新定时任务（cron/enabled/group/caseId）
 //   DELETE /api/schedules/:id     删除定时任务
 //   GET  /api/runs                执行记录（?caseId=&limit=）
 //   GET  /api/reports/summary     报告汇总

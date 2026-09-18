@@ -126,15 +126,27 @@
     <el-card class="sec" shadow="never">
       <template #header>⏰ 定时任务（node-cron）</template>
       <div class="sched-form">
-        <el-select v-model="schedForm.caseId" placeholder="选择要定时跑的用例" style="width: 260px">
+        <el-radio-group v-model="schedForm.target" size="small">
+          <el-radio-button label="case">单条用例</el-radio-button>
+          <el-radio-button label="group">分组</el-radio-button>
+        </el-radio-group>
+        <el-select v-if="schedForm.target === 'case'" v-model="schedForm.caseId" placeholder="选择要定时跑的用例" style="width: 240px">
           <el-option v-for="c in cases" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <el-select v-else v-model="schedForm.group" placeholder="选择要定时跑的分组" style="width: 240px">
+          <el-option v-for="g in groups" :key="g" :label="g" :value="g" />
         </el-select>
         <el-input v-model="schedForm.cron" placeholder="cron 表达式，如 */5 * * * *" style="flex: 1" />
         <el-button type="primary" :loading="schedSaving" @click="onAddSchedule">添加</el-button>
       </div>
       <el-table :data="schedules" border size="small" v-loading="schedLoading">
         <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="caseName" label="用例" min-width="160" show-overflow-tooltip />
+        <el-table-column label="目标" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.group">🏷️ {{ row.group }}</span>
+            <span v-else>{{ row.caseName || '（用例已删除）' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="cron" label="cron" min-width="140" />
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
@@ -148,7 +160,7 @@
             <el-button size="small" type="danger" @click="onDeleteSchedule(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty>还没有定时任务——选一个用例 + cron 表达式添加</template>
+        <template #empty>还没有定时任务——选「单条用例」或「分组」+ cron 表达式添加</template>
       </el-table>
     </el-card>
   </div>
@@ -165,7 +177,14 @@ const schedSaving = ref(false)
 const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], byEnv: [], byGroup: [], recentRuns: [] })
 const schedules = ref([])
 const cases = ref([])
-const schedForm = ref({ caseId: null, cron: '' })
+const schedForm = ref({ target: 'case', caseId: null, group: '', cron: '' })
+
+// 从用例列表派生出可选分组（分组标签来自每条用例的 group 字段）
+const groups = computed(() => {
+  const set = new Set()
+  for (const c of cases.value) if (c.group) set.add(c.group)
+  return [...set]
+})
 
 const passRateClass = computed(() =>
   summary.value.passRate >= 80 ? 'good' : summary.value.passRate >= 50 ? 'warn' : 'danger',
@@ -188,11 +207,20 @@ async function load() {
 }
 
 async function onAddSchedule() {
-  if (!schedForm.value.caseId) return ElMessage.warning('请选择用例')
-  if (!schedForm.value.cron.trim()) return ElMessage.warning('请填写 cron 表达式')
+  const form = schedForm.value
+  if (form.target === 'group') {
+    if (!form.group) return ElMessage.warning('请选择分组')
+  } else {
+    if (!form.caseId) return ElMessage.warning('请选择用例')
+  }
+  if (!form.cron.trim()) return ElMessage.warning('请填写 cron 表达式')
   schedSaving.value = true
   try {
-    await api.createSchedule({ caseId: schedForm.value.caseId, cron: schedForm.value.cron.trim() })
+    const payload =
+      form.target === 'group'
+        ? { group: form.group, cron: form.cron.trim() }
+        : { caseId: form.caseId, cron: form.cron.trim() }
+    await api.createSchedule(payload)
     ElMessage.success('已添加定时任务')
     schedForm.value.cron = ''
     await load()
