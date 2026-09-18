@@ -1,6 +1,6 @@
 # API 自动化测试平台
 
-> 面向全栈 / 测试运维岗位的简历项目。**M1–M15 已完成**：存用例 → 手动/定时跑 → 多维度断言（状态码/包含/耗时/JSONPath/**响应头**）→ 出报告 → 账号鉴权 → 单端口部署 → 环境变量集 → 套件导出导入 → 用例分组 → 删用例连带清理 → **分组定时任务（一个 cron 跑整组用例）**。
+> 面向全栈 / 测试运维岗位的简历项目。**M1–M17 已完成**：存用例 → 手动/定时跑 → 多维度断言（状态码/包含/耗时/JSONPath/**响应头**）→ 出报告 → 账号鉴权 → 单端口部署 → 环境变量集 → 套件导出导入 → 用例分组 → 删用例连带清理 → **分组定时任务（一个 cron 跑整组用例）** → **运行通知（定时任务跑完/失败落站内通知，前端铃铛未读角标）**。
 > 背景：实习每天手动点接口验证采集脚本，于是造一个能「存用例 → 手动/定时跑 → 出报告 → 账号体系 → 一键部署」的自用测试工具。
 
 ## 技术栈
@@ -9,7 +9,7 @@
 - 前端：**Vue3 + Vite + Element Plus** + vue-router + axios（`web/` 子目录）
 - 测试：**Vitest**
 
-## 当前能力（M1–M15）
+## 当前能力（M1–M17）
 
 - **鉴权（M4，零依赖实现）**：
   - 密码哈希：Node 内置 `crypto.scrypt`（加盐 + `timingSafeEqual` 防时序攻击）
@@ -61,7 +61,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 5 条示例用例（覆盖全断言类型）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 170 例全绿（全离线）
+npm test           # vitest 179 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist
 ```
 
@@ -281,7 +281,7 @@ npm run clean:orphans -- --yes   # 真删，删完复查「剩余 0 条」
 > ⭐ 改动二不是设计出来的，是**跑测试时红出来的**：写了一条「响应体以 BOM 开头」的用例，真机上永远红，
 > 回头才发现问题在 `res.text()`，不在导出功能。**又一次先看见「红」，才看见「为什么」。**
 
-实测：vitest **170 例**（`tests/headerAssert.test.js` 13 例，含「头名大小写不敏感」「头不存在时 `eq` 判失败」）；
+实测：vitest **179 例**（`tests/notifications.test.js` 9 例：通知存储层 / runScheduledJob 触发落通知 success·warn·error / HTTP 层；`tests/headerAssert.test.js` 13 例，含「头名大小写不敏感」「头不存在时 `eq` 判失败」）；
 闭环套件 I 段 8 条（OA-53～60）全用新断言跑通，`test:oa` **60/60**。
 
 ## 里程碑路线
@@ -303,16 +303,17 @@ npm run clean:orphans -- --yes   # 真删，删完复查「剩余 0 条」
 | **M13** | **删用例的连带清理**：删用例连带删执行记录与定时任务（同一事务，并停掉内存里的 cron），`deleteCase` 返回连带条数供前端如实提示；两个 seed 脚本补上执行记录清理；新增 `npm run clean:orphans` 扫尾历史遗留（实测清掉 **791 条**孤儿） | ✅ 已完成（145 例 + OA 52 条） |
 | **M14** | **响应头断言**：执行器读 `res.headers` + `expected.headers=[{name,op,value}]`（`op` 复用 eq/contains/exists，头名大小写不敏感）；顺带**绕开 `res.text()` 自己按字节解码**（否则连 BOM 都断言不了）→ 让 office-oa 新开的「单据导出 CSV」这一面（头 / BOM / 表头 / 公式注入）也能被断言 | ✅ 已完成（158 例 + OA 60 条） |
 | **M15** | **分组定时任务**：把 M12 的 `group` 维度延到定时任务——`schedules.case_id` 改为可空、`group` 优先（二选一，缺参 / 空组都 400）；`runScheduledJob` 从 cron 回调抽出，group 时调 `runAll(listCases(group).sort(by id))` 复用同一条链引擎，单条时退回 `runCase`；前端 `Reports.vue` 定时表单加「单条 / 分组」切换。⭐ 设计点：哨兵 `case_id = 0` 表示分组任务（避免重建表；`deleteCase` 按 case_id 删不会误伤）；空组创建时即拦下，杜绝「定时任务静默空跑」 | ✅ 已完成（170 例 + OA 60 条） |
+| **M17** | **运行通知（定时任务可观察性）**：`runScheduledJob` 跑完（无论成功 / 失败 / 异常）都落一条站内通知（success / warn / error 三档），前端 `App.vue` 铃铛 + 未读角标 + 弹窗已读；`notifications` 表 + 4 个路由（列表 / 未读计数 / 标记已读 / 全部已读）。⭐ 设计点：① 通知读写模型刻意做薄（只有增 / 列 / 已读，不编辑不删——通知是日志，被改写比被漏看更危险）；② 通知写失败**绝不**影响调度本体（`runScheduledJob` 内单独 try/catch 吞掉，错就当没这功能）；③ 删用例导致的 error 通知仍用 schedule 带着的 caseName 命名，让人认得出是哪条 | ✅ 已完成（179 例 + OA 60 条） |
 
 ### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M15 逐轮 + 踩坑 13 条 |
+| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M17 逐轮 + 踩坑 13 条 |
 | [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md) | 闭环记录：用本平台测穿 office-oa 的全过程 + 八个真实发现 |
 | [`docs/面试弹药-api-test-platform.md`](docs/面试弹药-api-test-platform.md) | 讲什么：10 个技术亮点 + 16 道深挖题 + 5 个「工具自己被抓出来的缺陷」 |
 | [`docs/简历弹药-api-test-platform.md`](docs/简历弹药-api-test-platform.md) | 简历上写什么：bullet + 18 项「我改过的点」shortlist + 防御深度 |
-| [`docs/关源码复现-api-test-platform.md`](docs/关源码复现-api-test-platform.md) | **会不会写**：11 道「关掉源码写出来」练习（含示范轮 + 评分标准 + 错题本模板） |
+| [`docs/关源码复现-api-test-platform.md`](docs/关源码复现-api-test-platform.md) | **会不会写**：12 道「关掉源码写出来」练习（含示范轮 + 评分标准 + 错题本模板） |
 
 ## 目录
 
@@ -337,7 +338,7 @@ seed-oa-suite.mjs office-oa 用例套件（60 条 + 按 A–I 段打 `group` 分
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
 scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
 scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/schedules.test.js  共 170 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/schedules.test.js + tests/notifications.test.js  共 179 例，全离线
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
 scripts/m11-suite-ui-check.mjs   套件导出/导入验证（接口层脱敏 + 真机层真的选文件导入；跑完自动清场）
@@ -351,7 +352,7 @@ web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端�
   src/views/CaseEditor.vue 请求编辑器（含 JSON 断言编辑）
   src/views/Reports.vue    报告页（统计/明细/定时任务管理）
 docs/             面试与讲解材料（诚实口径，详见上面「面试材料」表）
-  docs/项目全讲.md                  项目讲解（M1–M15 + 踩坑 13 条）
+  docs/项目全讲.md                  项目讲解（M1–M17 + 踩坑 13 条）
   docs/测穿-office-oa-闭环.md        闭环记录 + 八个真实发现
   docs/面试弹药-api-test-platform.md  亮点 / 深挖题 / 自曝缺陷
   docs/简历弹药-api-test-platform.md  简历 bullet / 我改过的点 shortlist

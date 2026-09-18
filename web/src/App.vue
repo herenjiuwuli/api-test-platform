@@ -6,7 +6,7 @@
       <div class="brand">
         <span class="brand-dot">⚡</span>
         <span class="brand-name">API 自动化测试平台</span>
-        <span class="brand-sub">M11 · 用例链 + 文件上传 + 环境变量集 + 环境快照 + 套件导出导入</span>
+        <span class="brand-sub">M17 · 用例链 + 环境变量集 + 套件 + 分组定时 + 运行通知</span>
       </div>
       <div class="nav">
         <el-tag v-if="activeEnvName" type="success" effect="plain" size="small" class="env-tag" @click="$router.push('/environments')">
@@ -24,6 +24,9 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <el-badge :value="unread" :hidden="unread === 0" :max="99" class="notif-bell">
+          <el-button text @click="openNotif">🔔 通知</el-button>
+        </el-badge>
         <el-button text :type="isList ? 'primary' : ''" @click="$router.push('/')">用例列表</el-button>
         <el-button text :type="isReports ? 'primary' : ''" @click="$router.push('/reports')">报告 / 定时</el-button>
         <el-button text :type="isEnvs ? 'primary' : ''" @click="$router.push('/environments')">环境</el-button>
@@ -50,6 +53,30 @@
       <template #footer>
         <el-button @click="pwdVisible = false">取消</el-button>
         <el-button type="primary" :loading="pwdLoading" @click="submitPwd">确定修改</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 运行通知（M17）：定时任务跑完/失败落库，铃铛展示未读角标 -->
+    <el-dialog v-model="notifVisible" title="运行通知" width="540px">
+      <div v-if="!notifs.length" class="notif-empty">暂无通知</div>
+      <div
+        v-for="n in notifs"
+        :key="n.id"
+        class="notif-item"
+        :class="{ unread: !n.read }"
+        @click="readOne(n)"
+      >
+        <span class="notif-lv">{{ levelIcon[n.level] || 'ℹ️' }}</span>
+        <div class="notif-body">
+          <div class="notif-title">{{ n.title }}</div>
+          <div class="notif-text">{{ n.body }}</div>
+          <div class="notif-meta">{{ n.createdAt }} · {{ n.target }}</div>
+        </div>
+        <span v-if="!n.read" class="notif-dot" />
+      </div>
+      <template #footer>
+        <el-button @click="notifVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!unread" @click="markAll">全部已读</el-button>
       </template>
     </el-dialog>
   </el-container>
@@ -91,7 +118,40 @@ onMounted(async () => {
     }
   }
   if (session.token) await refreshEnvironments()
+  if (session.token) await refreshNotif()
 })
+
+// 运行通知（M17）：铃铛未读角标 + 弹窗。只拉、标记已读，不编辑不删——和后端一致。
+const unread = ref(0)
+const notifVisible = ref(false)
+const notifs = ref([])
+const levelIcon = { success: '✅', warn: '⚠️', error: '❌', info: 'ℹ️' }
+
+async function refreshNotif() {
+  try {
+    const [list, cnt] = await Promise.all([api.listNotifications(), api.unreadCount()])
+    notifs.value = list.items
+    unread.value = cnt.count
+  } catch {
+    // 通知拉取失败不影响主流程（比如还没登录）
+  }
+}
+
+async function openNotif() {
+  notifVisible.value = true
+  await refreshNotif()
+}
+
+async function readOne(n) {
+  if (n.read) return
+  await api.markNotificationRead(n.id)
+  await refreshNotif()
+}
+
+async function markAll() {
+  await api.markAllNotificationsRead()
+  await refreshNotif()
+}
 
 // 兜底再对齐一次（例如别处改了库、或页面被直接从外部带 hash 打开）：
 // 环境是全局状态，多对齐一次的成本是一次很小的 GET，比"徽标撒谎"便宜得多。
@@ -151,4 +211,24 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, "Segoe UI", "
 .who { font-size: 13px; color: #606266; margin-right: 6px; cursor: pointer; user-select: none; }
 .caret { font-size: 11px; opacity: 0.7; }
 .app-main { padding: 20px; max-width: 1200px; margin: 0 auto; width: 100%; }
+.notif-bell { margin-left: 4px; }
+.notif-empty { color: #909399; text-align: center; padding: 24px 0; }
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px;
+  border-bottom: 1px solid #f0f2f5;
+  cursor: pointer;
+  position: relative;
+}
+.notif-item:hover { background: #fafafa; }
+.notif-item.unread { background: #f4f8ff; }
+.notif-item.unread:hover { background: #eef4ff; }
+.notif-lv { font-size: 18px; line-height: 1.4; }
+.notif-body { flex: 1; min-width: 0; }
+.notif-title { font-size: 14px; font-weight: 600; color: #303133; }
+.notif-text { font-size: 13px; color: #606266; margin-top: 2px; word-break: break-all; }
+.notif-meta { font-size: 12px; color: #909399; margin-top: 4px; }
+.notif-dot { width: 8px; height: 8px; border-radius: 50%; background: #409eff; flex: none; margin-top: 6px; }
 </style>

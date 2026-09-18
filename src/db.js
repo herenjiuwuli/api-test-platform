@@ -73,6 +73,19 @@ export function getDb() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL DEFAULT ''
     );
+    -- 通知（M17）：定时任务跑完/失败时落一条站内通知，前端铃铛展示未读角标。
+    -- level：success（全绿）/ warn（跑了但有断言失败）/ error（运行抛异常）/ info。
+    -- target：来自哪个定时任务（分组名或用例名），便于在通知里说清来源。
+    -- 读写模型故意做得很薄：只有「列 + 标记已读」，没有编辑/删除单条（通知是日志，不该被改写）。
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level TEXT NOT NULL DEFAULT 'info',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      target TEXT NOT NULL DEFAULT '',
+      "read" INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
   migrate(_db)
   return _db

@@ -59,6 +59,11 @@ export const api = {
   createSchedule: (payload) => http.post('/api/schedules', payload).then((r) => r.data),
   updateSchedule: (id, payload) => http.put(`/api/schedules/${id}`, payload).then((r) => r.data),
   deleteSchedule: (id) => http.delete(`/api/schedules/${id}`).then((r) => r.data),
+  // M17：运行通知（定时任务跑完/失败落库，铃铛展示未读）
+  listNotifications: (params) => http.get('/api/notifications', { params }).then((r) => r.data),
+  unreadCount: () => http.get('/api/notifications/unread-count').then((r) => r.data),
+  markNotificationRead: (id) => http.post(`/api/notifications/${id}/read`).then((r) => r.data),
+  markAllNotificationsRead: () => http.post('/api/notifications/read-all').then((r) => r.data),
   // AI 生成用例（AI 响应较慢，单独放宽超时）
   aiGenerateCases: (payload) =>
     http.post('/api/ai/generate-cases', payload, { timeout: 120000 }).then((r) => r.data),

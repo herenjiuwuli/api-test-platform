@@ -7,6 +7,7 @@ import cron from 'node-cron'
 import { listSchedules, validateCron } from './schedules.js'
 import { getCase, listCases } from './cases.js'
 import { runCase, runAll } from './runner.js'
+import { addNotification } from './notifications.js'
 
 const jobs = new Map() // scheduleId → cron Task
 
@@ -16,16 +17,59 @@ const jobs = new Map() // scheduleId → cron Task
  *   和手动 run-all 一样：单个分组未必是自包含链——比如 OA 的「审批引擎」依赖登录/建单抽出的变量，
  *   单独跑会红。这是链式设计的固有特性，分组主要用于「组织 + 报告按组看」。
  * - 单条用例定时：跑这一条。
+ *
+ * M17 可观察性：跑完（无论成功/失败/异常）都落一条通知，前端铃铛展示未读角标。
+ * level 三档：success（全绿）/ warn（跑了但有断言失败）/ error（运行抛异常或用例已删）。
+ * 通知是「额外」能力：写失败绝不能让定时任务本体失败，所以单独 try/catch 吞掉。
  */
 export async function runScheduledJob(schedule) {
-  if (schedule.group) {
-    const cases = listCases(schedule.group)
-      .slice()
-      .sort((a, b) => a.id - b.id)
-    if (cases.length) await runAll(cases)
-  } else {
-    const c = getCase(schedule.caseId)
-    if (c) await runCase(c)
+  let target = ''
+  let level = 'info'
+  let title = ''
+  let body = ''
+  try {
+    if (schedule.group) {
+      target = `分组「${schedule.group}」`
+      const cases = listCases(schedule.group)
+        .slice()
+        .sort((a, b) => a.id - b.id)
+      if (!cases.length) {
+        level = 'warn'
+        title = `${target} 定时运行未执行`
+        body = '该分组下没有用例（建定时任务时已拦空组，这里是防御）'
+      } else {
+        const results = await runAll(cases)
+        const failed = results.filter((r) => !r.pass).length
+        level = failed === 0 ? 'success' : 'warn'
+        title = `${target} 定时运行完成`
+        body = `共 ${results.length} 条用例，通过 ${results.length - failed}，失败 ${failed}`
+      }
+    } else {
+      const c = getCase(schedule.caseId)
+      if (!c) {
+        // 用例被删：schedule 对象仍带着 caseName（createSchedule/listSchedules 都透出），用它命名，
+        // 比只写「用例#3」更有用——删了的通知也得让人认得出是哪条。
+        target = `用例「${schedule.caseName ?? schedule.caseId}」`
+        level = 'error'
+        title = `${target} 定时运行失败`
+        body = '该用例可能已被删除（分组定时用占位 case_id=0，不会中招；单条会）'
+      } else {
+        target = `用例「${c.name}」`
+        const r = await runCase(c)
+        level = r.pass ? 'success' : 'warn'
+        title = `${target} 定时运行完成`
+        body = r.pass ? '全部断言通过' : '断言未通过：' + (r.detail || []).slice(0, 2).join('；')
+      }
+    }
+  } catch (e) {
+    level = 'error'
+    title = `${target || '定时任务'} 运行异常`
+    body = e.message || String(e)
+  }
+  try {
+    addNotification({ level, title, body, target })
+  } catch {
+    // 通知挂了不能影响调度本体
   }
 }
 

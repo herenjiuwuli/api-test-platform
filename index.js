@@ -14,6 +14,10 @@
 //   DELETE /api/schedules/:id     删除定时任务
 //   GET  /api/runs                执行记录（?caseId=&limit=）
 //   GET  /api/reports/summary     报告汇总
+//   GET  /api/notifications               通知列表（?limit=，M17）
+//   GET  /api/notifications/unread-count   未读条数（M17）
+//   POST /api/notifications/:id/read       标记单条已读（M17）
+//   POST /api/notifications/read-all       全部标记已读（M17）
 //   GET  /api/environments        环境变量集列表（含当前环境 activeId）
 //   POST /api/environments        新建环境 {name,baseUrl,headers,vars}
 //   PUT  /api/environments/active 切换当前环境 {id}（id 传 null = 取消当前环境）
@@ -49,6 +53,7 @@ import { exportSuite, importSuite } from './src/suite.js'
 import { createSchedule, listSchedules, getSchedule, updateSchedule, deleteSchedule } from './src/schedules.js'
 import { refreshJob, startScheduler } from './src/scheduler.js'
 import { listRuns, getReportSummary } from './src/reports.js'
+import { listNotifications, unreadCount, markRead, markAllRead } from './src/notifications.js'
 import { signToken, verifyToken } from './src/auth.js'
 import { createUser, verifyLogin, initDefaultUser, changePassword } from './src/users.js'
 import { generateCases } from './src/aiCases.js'
@@ -300,6 +305,22 @@ export function buildApp() {
   )
 
   app.get('/api/reports/summary', async () => getReportSummary())
+
+  // —— 通知（M17）——
+  // 定时任务跑完/失败会落通知（runScheduledJob 里调 addNotification）；这里只负责「读 + 标记已读」。
+  // 读写模型刻意做薄：没有编辑、没有删单条——通知是运行日志，被改写比被漏看更危险。
+  app.get('/api/notifications', async (req) =>
+    listNotifications({ limit: req.query.limit ? Number(req.query.limit) : 50 }),
+  )
+
+  app.get('/api/notifications/unread-count', async () => unreadCount())
+
+  app.post('/api/notifications/:id/read', async (req) => {
+    markRead(Number(req.params.id))
+    return { ok: true }
+  })
+
+  app.post('/api/notifications/read-all', async () => markAllRead())
 
   // —— AI 生成用例 ——
   app.post('/api/ai/generate-cases', async (req, reply) => {
