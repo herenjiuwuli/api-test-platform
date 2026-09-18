@@ -600,11 +600,110 @@ const cases = [
       headers: [{ name: 'X-Total-Count', op: 'eq', value: '0' }],
     },
   },
+
+  // ── J. 会议室预订（OA M5）────────────────────────────────────
+  // ⭐ 这一段的靶子是「时段冲突的防线在哪一层」：同一时段订两次必须 409、
+  //    部分重叠也算冲突、取消后同时段能重订（证明占用槽真的被释放，不是只改状态）。
+  // 日期用**固定远期**（2027-06-01）：平台用例是静态 body，拿不到「明天」，
+  // 而过去时段会被 400 拒 —— 固定一个足够远的日期，套件什么时候跑都成立。
+  {
+    name: `${TAG}61 会议室列表：至少 4 间且停用排最后`,
+    method: 'GET',
+    url: `{{base}}/api/meeting-rooms`,
+    headers: auth('token_emp'),
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.total', op: 'gte', value: 4 },
+        { path: '$.items[3].status', op: 'eq', value: 'disabled' },
+      ],
+    },
+  },
+  {
+    name: `${TAG}62 预订成功 → 201（抽预订 id 供后续取消）`,
+    ...post('/api/room-bookings', 'token_emp', {
+      roomId: 1, date: '2027-06-01', startTime: '09:00', endTime: '10:00', title: '平台链路测试会',
+    }),
+    expected: { status: 201, jsonChecks: [{ path: '$.status', op: 'eq', value: 'booked' }] },
+    extract: [{ name: 'bid1', path: '$.id' }],
+  },
+  {
+    name: `${TAG}63 ★ 同一时段订两次 → 409，且错误里写明被谁占了哪一段`,
+    ...post('/api/room-bookings', 'token_emp', {
+      roomId: 1, date: '2027-06-01', startTime: '09:00', endTime: '10:00', title: '抢占',
+    }),
+    expected: { status: 409, contains: '已被占用' },
+  },
+  {
+    name: `${TAG}64 ★ 部分重叠（09:30–10:30 撞 09:00–10:00）→ 409`,
+    ...post('/api/room-bookings', 'token_emp', {
+      roomId: 1, date: '2027-06-01', startTime: '09:30', endTime: '10:30', title: '半个重叠',
+    }),
+    expected: { status: 409 },
+  },
+  {
+    name: `${TAG}65 时间不对齐半点（09:15）→ 400`,
+    ...post('/api/room-bookings', 'token_emp', {
+      roomId: 1, date: '2027-06-01', startTime: '09:15', endTime: '10:00', title: '不对齐',
+    }),
+    expected: { status: 400, contains: '整点或半点' },
+  },
+  {
+    name: `${TAG}66 停用的会议室不能订 → 400`,
+    ...post('/api/room-bookings', 'token_emp', {
+      roomId: 4, date: '2027-06-01', startTime: '09:00', endTime: '10:00', title: '订停用房',
+    }),
+    expected: { status: 400, contains: '停用' },
+  },
+  {
+    name: `${TAG}67 单次超 4 小时 → 400（防占满一整天）`,
+    ...post('/api/room-bookings', 'token_emp', {
+      roomId: 1, date: '2027-06-01', startTime: '08:00', endTime: '13:00', title: '占半天',
+    }),
+    expected: { status: 400, contains: '4 小时' },
+  },
+  {
+    name: `${TAG}68 admin 订一间（造一条「别人的预订」供越权取消用）`,
+    ...post('/api/room-bookings', 'token_admin', {
+      roomId: 3, date: '2027-06-02', startTime: '15:00', endTime: '15:30', title: '经理碰头',
+    }),
+    expected: { status: 201 },
+    extract: [{ name: 'bid_admin', path: '$.id' }],
+  },
+  {
+    name: `${TAG}69 ★ 横向越权：普通员工取消别人的预订 → 403`,
+    method: 'DELETE',
+    url: `{{base}}/api/room-bookings/{{bid_admin}}`,
+    headers: auth('token_emp'),
+    expected: { status: 403, contains: '只能取消自己的预订' },
+  },
+  {
+    name: `${TAG}70 本人取消 → 200`,
+    method: 'DELETE',
+    url: `{{base}}/api/room-bookings/{{bid1}}`,
+    headers: auth('token_emp'),
+    expected: { status: 200, jsonChecks: [{ path: '$.status', op: 'eq', value: 'cancelled' }] },
+  },
+  {
+    name: `${TAG}71 ★ 取消后同时段可重订（占用槽真的被释放，不是只改状态）`,
+    ...post('/api/room-bookings', 'token_emp', {
+      roomId: 1, date: '2027-06-01', startTime: '09:00', endTime: '10:00', title: '释放后再订',
+    }),
+    expected: { status: 201 },
+    extract: [{ name: 'bid2', path: '$.id' }],
+  },
+  {
+    name: `${TAG}72 收尾：取消 71 留下的预订（套件不留测试数据）`,
+    method: 'DELETE',
+    url: `{{base}}/api/room-bookings/{{bid2}}`,
+    headers: auth('token_emp'),
+    expected: { status: 200 },
+  },
 ]
 
 // ── M12：按 OA-NN 编号给每条用例打上业务分组标签 ───────────────────────
 // 分组用于平台的「列表筛选 / 按组运行 / 报告按组看通过率」。一个平台里常挂多个被测系统的用例，
-// 这里把 OA 这 60 条按业务主题收成 9 组（A 入口鉴权 → I 导出）。
+// 这里把 OA 这 72 条按业务主题收成 10 组（A 入口鉴权 → J 会议室）。
 // 用编号映射而非按数组下标切，是因为各段条数以后可能微调，而「OA-18 属于审批引擎」这条事实不会变。
 function groupOf(name) {
   const m = String(name).match(/OA-(\d+)/)
@@ -618,7 +717,8 @@ function groupOf(name) {
   if (n <= 36) return '附件边界'
   if (n <= 44) return '附件全周期'
   if (n <= 52) return '站内通知'
-  return '导出'
+  if (n <= 60) return '导出'
+  return '会议室'
 }
 for (const c of cases) c.group = groupOf(c.name)
 
@@ -643,7 +743,7 @@ for (const c of cases) createCase(c)
 
 console.log(`[oa-suite] 当前环境「${ENV_NAME}」→ ${env.baseUrl}（用例里写 {{base}}，换环境不用改用例）`)
 console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条、旧执行记录 ${removedRuns} 条）`)
-console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知/导出`)
+console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知/导出/会议室`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
 console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态 / ${TAG}45 引擎挂钩发通知 / ${TAG}47 通知 round 快照 / ${TAG}55 导出的 Content-Type（头断言） / ${TAG}57 BOM / ${TAG}58 CSV 公式注入`)
