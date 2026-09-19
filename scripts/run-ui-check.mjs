@@ -1,9 +1,13 @@
 // 一条命令跑完「平台自测的真机断言」：自己准备隔离实例、自己起服务、跑完自己收尾。
 //
-// 为什么需要它：m11（套件导入导出，19 条）+ m12（用例分组，24 条）这批真机断言
+// 为什么需要它：m11（套件导入导出）+ m12（用例分组）这批真机断言
 // 此前**既不在 CI 也不在 `verify`** —— 也就是「提交前一条命令复现全部检查」这句话，
 // 对这两块是不成立的。而它们恰恰是「套件往返 / 分组」在**真浏览器**里的唯一保护。
 // （与 office-oa 当初一模一样的缺口：测试脚本写好了，但没人会记得手动跑。）
+//
+// ⭐ 条数**不写死在注释里**：写死的必然烂 —— m12 加了自包含对照数据后 24 → 26，
+//    而本文件注释（24）与 ci.yml 注释（43 = 19+24）都没跟上，一路撒谎到被发现。
+//    现在由本脚本在启动时按 `check(` **现数**并打印，数字跟着代码走。
 //
 // 四个刻意的设计（都踩过或见过对应的坑）：
 // 1. **独立库 + 独立端口**：固定 data/ui-check.db + 3111，绝不碰正在开发用的 data/app.db。
@@ -38,6 +42,18 @@ const DIST = path.join(ROOT, 'web', 'dist')
 // 本脚本负责的断言（顺序即执行顺序）
 const CHECKS = ['scripts/m11-suite-ui-check.mjs', 'scripts/m12-group-ui-check.mjs']
 
+/**
+ * 按 `check(` **现数**断言条数 —— 注释里不写死，数字跟着代码走。
+ * （注意口径：m9/m10 用 `check(`，m11/m12 用 `c.check(`，两种都要能数到。）
+ */
+function countChecks(files) {
+  const re = /(^|[^a-zA-Z])check\(/
+  return files.map((f) => ({
+    file: f,
+    n: fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\r?\n/).filter((l) => re.test(l)).length,
+  }))
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function healthy() {
@@ -66,6 +82,12 @@ async function main() {
 
   fs.mkdirSync(path.dirname(DB), { recursive: true })
   console.log(`[ui-check] 隔离环境：库 data/ui-check.db · 端口 ${PORT} · 不碰 data/app.db`)
+
+  const declared = countChecks(CHECKS)
+  const declaredTotal = declared.reduce((s, d) => s + d.n, 0)
+  console.log(
+    `[ui-check] 计入 ${declared.map((d) => `${path.basename(d.file)} ${d.n} 条`).join(' + ')} = ${declaredTotal} 条（现数）`,
+  )
 
   let server = null
   if (await healthy()) {
@@ -118,7 +140,7 @@ async function main() {
     console.error(`\n[ui-check] 真机断言未通过：${failed.join('、')}`)
     process.exit(1)
   }
-  console.log(`\n[ui-check] ✅ 真机断言通过（${CHECKS.length} 支脚本）`)
+  console.log(`\n[ui-check] ✅ 真机断言通过（${CHECKS.length} 支脚本 / ${declaredTotal} 条断言）`)
 }
 
 main().catch((e) => {

@@ -31,7 +31,9 @@ const CHROME_CANDIDATES = [
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
   '/usr/bin/chromium',
+  '/opt/google/chrome/chrome',
 ]
 
 export function findChrome() {
@@ -165,6 +167,11 @@ export async function withBrowser(fn, { port = 9336, mobile } = {}) {
       '--disable-extensions',
       '--disable-background-networking',
       '--window-size=1440,900',
+      // ⭐ 只在 CI 上关沙箱：Playwright 的 E2E 能跑通**不能**替这里作证 ——
+      //   Playwright 启动 Chromium 时默认就带 `--no-sandbox`（chromiumSandbox 默认 false），
+      //   而本脚本是裸起系统 Chrome，没有那层兜底。容器/受限环境里不带这两个参数会直接起不来，
+      //   或 /dev/shm 太小导致渲染进程崩。本机**刻意不加**，保持沙箱开启。
+      ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
       'about:blank',
     ],
     { stdio: 'ignore', detached: false },
@@ -172,7 +179,9 @@ export async function withBrowser(fn, { port = 9336, mobile } = {}) {
   let ws = null
   try {
     const ver = await waitJson(`http://127.0.0.1:${port}/json/version`)
-    console.log('Chrome:', ver.Browser)
+    // 把**路径**也打出来：CI 上与本机环境不同，真挂在这一步时，
+    // 一眼就能区分是「没找到 Chrome」还是「找到了但起不来」。
+    console.log('Chrome:', CHROME, ver.Browser)
     // 新版 Chrome 要求 PUT
     const tgt = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' }).then((r) => r.json())
     ws = new WebSocket(tgt.webSocketDebuggerUrl)
