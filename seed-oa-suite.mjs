@@ -22,7 +22,7 @@ import { createCase } from './src/cases.js'
 import { createEnvironment, listEnvironments, setActiveEnvironment, updateEnvironment } from './src/environments.js'
 
 // 被测地址现在只活在**一处**：下面这个环境（M9）。
-// 用例里一律写 {{base}}，所以「换一个被测环境」= 换这个环境对象，不用重写 44 条 URL。
+// 用例里一律写 {{base}}，所以「换一个被测环境」= 换这个环境对象，不用重写 84 条 URL。
 const BASE = process.env.OA_BASE || 'http://127.0.0.1:3200'
 const ENV_NAME = process.env.OA_ENV_NAME || 'office-oa（本地）'
 const PWD = process.env.OA_PASSWORD || 'oa123456'
@@ -763,11 +763,82 @@ const cases = [
     url: `{{base}}/api/stats/overview`,
     expected: { status: 401 },
   },
+
+  // ── L. 考勤打卡（OA M7）──────────────────────────────────────
+  // 靶子一：和 M6 统计同源 —— 一个人的打卡是隐私，「本部门谁老迟到」才是管理信息，
+  //         所以 scope 同样 mine/dept/all 收敛，越界 403（不静默降级）。
+  // 靶子二：**应出勤只算已经过去的工作日**。这是 OA 侧真实踩过的缺陷：分母用「整月工作日」时，
+  //         月中打开看板会把 9/20 之后还没到的日子也算成欠勤（截图里「全公司缺卡 163 天」）。
+  //         这里用「未来月 = 0」+「过去月 = 整月」两个方向把这条口径钉死。
+  {
+    name: `${TAG}79 员工查本人考勤（me）→ 200，month 原样回显`,
+    method: 'GET',
+    url: `{{base}}/api/attendance/me`,
+    headers: auth('token_emp'),
+    query: { month: '2026-03' },
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.month', op: 'eq', value: '2026-03' },
+        { path: '$.items', op: 'exists' },
+      ],
+    },
+  },
+  {
+    name: `${TAG}80 ★ 员工请求考勤 scope=all → 403（聚合接口不静默降级）`,
+    method: 'GET',
+    url: `{{base}}/api/attendance/overview`,
+    headers: auth('token_emp'),
+    query: { scope: 'all', month: '2026-03' },
+    expected: { status: 403, contains: 'mine' },
+  },
+  {
+    name: `${TAG}81 经理可用本部门范围（scope=dept）`,
+    method: 'GET',
+    url: `{{base}}/api/attendance/overview`,
+    headers: auth('token_other_mgr'),
+    query: { scope: 'dept', month: '2026-03' },
+    expected: { status: 200, jsonChecks: [{ path: '$.scope', op: 'eq', value: 'dept' }] },
+  },
+  {
+    name: `${TAG}82 ★ 未来月份的应出勤 = 0、缺卡 = 0（不把还没到的日子算成欠勤）`,
+    method: 'GET',
+    url: `{{base}}/api/attendance/overview`,
+    headers: auth('token_admin'),
+    query: { scope: 'all', month: '2030-06' },
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.workingDays', op: 'eq', value: 0 },
+        { path: '$.summary.absentDays', op: 'eq', value: 0 },
+      ],
+    },
+  },
+  {
+    name: `${TAG}83 ★ 过去月份的应出勤 = 整月工作日（2026-03 = 22 天）`,
+    method: 'GET',
+    url: `{{base}}/api/attendance/overview`,
+    headers: auth('token_admin'),
+    query: { scope: 'all', month: '2026-03' },
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.workingDays', op: 'eq', value: 22 },
+        { path: '$.perUser', op: 'exists' },
+      ],
+    },
+  },
+  {
+    name: `${TAG}84 未登录拉考勤 → 401`,
+    method: 'GET',
+    url: `{{base}}/api/attendance/overview`,
+    expected: { status: 401 },
+  },
 ]
 
 // ── M12：按 OA-NN 编号给每条用例打上业务分组标签 ───────────────────────
 // 分组用于平台的「列表筛选 / 按组运行 / 报告按组看通过率」。一个平台里常挂多个被测系统的用例，
-// 这里把 OA 这 72 条按业务主题收成 10 组（A 入口鉴权 → J 会议室）。
+// 这里把 OA 这 84 条按业务主题收成 12 组（A 入口鉴权 → L 考勤打卡）。
 // 用编号映射而非按数组下标切，是因为各段条数以后可能微调，而「OA-18 属于审批引擎」这条事实不会变。
 function groupOf(name) {
   const m = String(name).match(/OA-(\d+)/)
@@ -783,7 +854,8 @@ function groupOf(name) {
   if (n <= 52) return '站内通知'
   if (n <= 60) return '导出'
   if (n <= 72) return '会议室'
-  return '统计'
+  if (n <= 78) return '统计'
+  return '考勤打卡'
 }
 for (const c of cases) c.group = groupOf(c.name)
 
@@ -808,7 +880,7 @@ for (const c of cases) createCase(c)
 
 console.log(`[oa-suite] 当前环境「${ENV_NAME}」→ ${env.baseUrl}（用例里写 {{base}}，换环境不用改用例）`)
 console.log(`[oa-suite] 已写入 OA 用例 ${cases.length} 条（清理旧用例 ${removed} 条、旧执行记录 ${removedRuns} 条）`)
-console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知/导出/会议室`)
+console.log(`[oa-suite] 分组标签（M12）：入口鉴权/登录权限/建单提交/审批引擎/登出令牌/附件边界/附件全周期/站内通知/导出/会议室/统计/考勤打卡`)
 console.log(`[oa-suite] 用例链顺序即创建顺序：登录抽 token → 建单抽 id → 审批 → 登出作废`)
 console.log(`[oa-suite] 跑法：npm run test:oa   （等价于 POST /api/run-all {"prefix":"${TAG}"}）`)
 console.log(`[oa-suite] 示例断言：${TAG}18 部门收敛 / ${TAG}23 授权先于状态 / ${TAG}29 登出即作废 / ${TAG}42 附件越权先于状态 / ${TAG}45 引擎挂钩发通知 / ${TAG}47 通知 round 快照 / ${TAG}55 导出的 Content-Type（头断言） / ${TAG}57 BOM / ${TAG}58 CSV 公式注入`)

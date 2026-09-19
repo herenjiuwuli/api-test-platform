@@ -69,7 +69,7 @@ npm run test:e2e   # Playwright 11 条真浏览器 UI 测试（channel:'chrome' 
 测穿配套的被测系统（闭环）：
 
 ```bash
-npm run seed:oa    # 写入 72 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件 + 站内通知 + 导出 + 会议室时段冲突）
+npm run seed:oa    # 写入 84 条 office-oa 用例（用例链：登录抽 token → 建单抽 id → 审批 → 登出作废 + 附件 + 站内通知 + 导出 + 会议室时段冲突 + 统计/考勤越权）
                    # 同时定义并选中「当前环境」（地址取 OA_BASE，默认 http://127.0.0.1:3200）
 npm run test:oa    # 让平台去打当前环境指向的 office-oa（会先把环境打印出来）
                    # 等价于 POST /api/run-all {"prefix":"OA-"}；任一条失败即以非 0 退出，可挂 CI
@@ -388,7 +388,7 @@ src/scheduler.js  node-cron 调度器（注册/启停/恢复；跑完落运行�
 src/notifications.js 运行通知存储层（增/列/未读/已读，读写模型做薄）+ SSE 广播源（subscribe 发布/订阅，M17/M18）+ 500 条保留裁剪（M20）
 src/webhook.js    通知出口（M21）：settings 存地址 + forwardToWebhook 外呼（只转 warn/error，永不抛错，3s 超时）
 src/reports.js    执行记录查询 + 报告聚合
-seed-oa-suite.mjs office-oa 用例套件（72 条 + 按 A–J 段打 `group` 分组，用例链 + 附件 + 站内通知 + 单据导出 + 会议室时段冲突/越权取消；并定义当前环境）— npm run seed:oa
+seed-oa-suite.mjs office-oa 用例套件（84 条 + 按 A–L 段打 `group` 分组，用例链 + 附件 + 站内通知 + 单据导出 + 会议室时段冲突/越权取消 + 统计/考勤范围收权；并定义当前环境）— npm run seed:oa
 run-oa-suite.mjs  一键跑 OA 套件并打印结果（含「当前环境」提示）— npm run test:oa
 scripts/m9-env-ui-check.mjs  真机 Chrome 验证环境变量集界面与页头徽标一致性（零依赖 CDP，13 条断言；跑完不留副作用）
 scripts/push-main.sh / retry-push.sh  直连推 GitHub（避开 Git Bash 单行 unset 的引号解析坑）
