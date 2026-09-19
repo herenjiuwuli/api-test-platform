@@ -294,7 +294,7 @@ curl -s --noproxy "*" $B/api/attachments/1 -H "Authorization: Bearer $T"
 这一节记的缺陷**不是平台抓出来的**，而是在 SUT 侧用别的层（白盒并发 / 肉眼验收）抓到的 ——
 写进来是因为它们说明了一件事：**闭环不等于「平台全绿就够了」，各层能看见的缺陷层次不一样。**
 
-`OA-31` 造了张草稿当靶子之后，给附件补了一轮「越权 / 并发 / 边界」的 vitest（`tests/attachments-edge.test.js`，13 条）。
+`OA-31` 造了张草稿当靶子之后，给附件补了一轮「越权 / 并发 / 边界」的 vitest（**office-oa 侧**的 `tests/attachments-edge.test.js`，13 条）。
 其中一条直接把 OA 自己的 bug 抓了出来：
 
 ```js

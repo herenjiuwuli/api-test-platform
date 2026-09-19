@@ -62,6 +62,8 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 ```bash
 npm run seed       # 写入 13 条「自测」用例（覆盖全断言维度，含 4 条打外网）+ 1 条演示定时任务，首次打开就有东西可跑
 npm test           # vitest 211 例全绿（全离线）
+npm run check:frontend    # 静态扫描：前端未声明标识符 / 模板漏声明 / ref 忘了 .value
+npm run check:docs        # 静态扫描：README / docs / CI 里引用的文件必须真的存在
 cd web && npm run build   # 前端产物 web/dist（E2E 打的是这份产物，必须先构建）
 npm run test:e2e   # Playwright 11 条真浏览器 UI 测试（channel:'chrome' 复用系统 Chrome，不下载浏览器；独立库 data/e2e.db 不污染开发数据）
 ```
@@ -307,7 +309,7 @@ npm run build        # E2E 打的是构建产物，必须先构建
 npm run test:e2e     # 11 条全绿 + 干净退出（~1 分钟）
 ```
 
-CI（`.github/workflows/ci.yml`）四层回归：静态扫描 → 构建 → vitest → E2E，失败自动传 Playwright 报告。
+CI（`.github/workflows/ci.yml`）四层回归：静态扫描（前端 + **文档引用**）→ 构建 → vitest → E2E，失败自动传 Playwright 报告。
 
 ## 通知降噪与保留策略（M20）
 
@@ -399,7 +401,7 @@ playwright.config.js  E2E 配置：channel:'chrome' 复用系统 Chrome、独立
 e2e/seed-e2e.mjs     E2E 确定性种子：复用真实 seed.js + 补 2 条离线必绿/必红用例（断言不依赖外网）
 e2e/helpers.js       E2E 公共层：真实表单登录 / hash 路由判据 / 等数据到位 / ★ about:blank 收尾 fixture（拆掉 SSE 长连接防挂死）
 scripts/run-e2e.mjs  E2E 包装器：自管服务生命周期（起 → 等 /health → 跑 Playwright → 杀）——绕开 Windows 上 Playwright 收尾杀不掉 webServer 的坑
-.github/workflows/ci.yml  CI：静态扫描 → 构建 → vitest → E2E（ubuntu 上 webServer 收尾正常，直跑 playwright test）
+.github/workflows/ci.yml  CI：静态扫描（前端 + 文档引用）→ 构建 → vitest → E2E（ubuntu 上 webServer 收尾正常，直跑 playwright test）
 tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/runnerQuery.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js + tests/seed.test.js  共 17 个文件 / 211 例，全离线
 e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + e2e/force-exit-reporter.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；force-exit reporter + 看门狗重试绕开本机 flaky 收尾；CI 走 .github/workflows/ci.yml）
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
@@ -409,11 +411,11 @@ scripts/m12-group-ui-check.mjs   用例分组验证（接口层 + 真机层选�
 scripts/lib/cdp.mjs              真机检查的公共底座（起 Chrome / CDP 客户端 / 页面助手 / 临时账号 token）
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
 web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端同源托管）
-  src/auth.js     前端会话状态（token + reactive session）
-  src/views/Login.vue      登录/注册页（M4）
-  src/views/CaseList.vue   用例列表 + 运行/汇总结果
-  src/views/CaseEditor.vue 请求编辑器（含 JSON 断言编辑）
-  src/views/Reports.vue    报告页（统计/明细/定时任务管理）
+  web/src/auth.js     前端会话状态（token + reactive session）
+  web/src/views/Login.vue      登录/注册页（M4）
+  web/src/views/CaseList.vue   用例列表 + 运行/汇总结果
+  web/src/views/CaseEditor.vue 请求编辑器（含 JSON 断言编辑）
+  web/src/views/Reports.vue    报告页（统计/明细/定时任务管理）
 docs/             面试与讲解材料（诚实口径，详见上面「面试材料」表）
   docs/项目全讲.md                  项目讲解（M1–M22 + 12 个技术亮点 + 踩坑 13 条）
   docs/测穿-office-oa-闭环.md        闭环记录 + 九个真实发现

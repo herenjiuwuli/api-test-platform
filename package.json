@@ -19,9 +19,10 @@
     "check:frontend:undef": "node scripts/check-vue-undef.mjs web/src",
     "check:frontend:tpl": "node scripts/check-vue-tpl.mjs web/src",
     "check:frontend:refvalue": "node scripts/check-vue-refvalue.mjs web/src/views",
+    "check:docs": "node scripts/check-doc-refs.mjs",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:e2e:report": "playwright show-report",
-    "verify": "npm run check:frontend && npm run build && npm test && npm run test:e2e"
+    "verify": "npm run check:frontend && npm run check:docs && npm run build && npm test && npm run test:e2e"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
