@@ -388,10 +388,10 @@ M20 之前的通知都只活在平台页面里——人不在电脑前就收不�
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M22 逐轮 + 12 个技术亮点 + 踩坑 13 条 |
+| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M22 逐轮 + 12 个技术亮点 + 踩坑 14 条 |
 | [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md) | 闭环记录：用本平台测穿 office-oa 的全过程（十轮）+ 九个真实发现 |
-| [`docs/面试弹药-api-test-platform.md`](docs/面试弹药-api-test-platform.md) | 讲什么：10 个技术亮点 + 18 项「我改过的点」候选清单 + 17 道深挖题 + 6 个「平台自己被抓出来的缺陷 / 边界」 |
-| [`docs/简历弹药-api-test-platform.md`](docs/简历弹药-api-test-platform.md) | 简历上写什么：bullet + 18 项「我改过的点」shortlist + 防御深度 |
+| [`docs/面试弹药-api-test-platform.md`](docs/面试弹药-api-test-platform.md) | 讲什么：10 个技术亮点 + 20 项「我改过的点」候选清单 + 17 道深挖题 + 6 个「平台自己被抓出来的缺陷 / 边界」 |
+| [`docs/简历弹药-api-test-platform.md`](docs/简历弹药-api-test-platform.md) | 简历上写什么：bullet + 20 项「我改过的点」shortlist + 防御深度 |
 | [`docs/关源码复现-api-test-platform.md`](docs/关源码复现-api-test-platform.md) | **会不会写**：12 道「关掉源码写出来」练习（含示范轮 + 评分标准 + 错题本模板） |
 
 ## 目录
@@ -440,9 +440,9 @@ web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端�
   web/src/views/CaseEditor.vue 请求编辑器（含 JSON 断言编辑）
   web/src/views/Reports.vue    报告页（统计/明细/定时任务管理）
 docs/             面试与讲解材料（诚实口径，详见上面「面试材料」表）
-  docs/项目全讲.md                  项目讲解（M1–M22 + 12 个技术亮点 + 踩坑 13 条）
+  docs/项目全讲.md                  项目讲解（M1–M22 + 12 个技术亮点 + 踩坑 14 条）
   docs/测穿-office-oa-闭环.md        闭环记录 + 九个真实发现
-  docs/面试弹药-api-test-platform.md  10 个技术亮点 / 17 道深挖题 / 6 个自曝缺陷
-  docs/简历弹药-api-test-platform.md  简历 bullet / 18 项「我改过的点」shortlist
+  docs/面试弹药-api-test-platform.md  10 个技术亮点 / 20 项「我改过的点」/ 17 道深挖题 / 6 个自曝缺陷
+  docs/简历弹药-api-test-platform.md  简历 bullet / 20 项「我改过的点」shortlist
   docs/关源码复现-api-test-platform.md 关源码复现练习（12 题 + 示范轮 + 评分标准）
 ```
