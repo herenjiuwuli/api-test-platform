@@ -65,12 +65,32 @@ async function healthy() {
   }
 }
 
-function runInherit(args, env) {
+/**
+ * 跑子脚本：**透传输出**（CI 里没人看被吞掉的日志）+ **顺便抓它报的实际条数**。
+ * 为什么要在意「实际」而不是只数源码：静态 `check(` 数的是**写在哪**，
+ * 而条件/循环分支里的断言**不一定执行** —— 实测 office-oa 那套就是静态 82、实跑 81。
+ * 所以这里两条都记，不一致时**主动提示**（差异本身就是「有断言没跑到」的信号）。
+ */
+function runCapture(args, env) {
   return new Promise((resolve, reject) => {
-    const p = spawn(process.execPath, args, { cwd: ROOT, stdio: 'inherit', env })
-    p.on('exit', (c) => resolve(c ?? 1))
+    const p = spawn(process.execPath, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env })
+    let buf = ''
+    const onData = (d) => {
+      const s = d.toString()
+      buf += s
+      process.stdout.write(s)
+    }
+    p.stdout.on('data', onData)
+    p.stderr.on('data', onData)
+    p.on('exit', (c) => resolve({ code: c ?? 1, out: buf }))
     p.on('error', reject)
   })
+}
+
+/** 从子脚本输出里取它最后报的「通过 N / N」的分母（= 该脚本实际执行的断言数） */
+function actualFrom(out) {
+  const m = [...out.matchAll(/通过\s+(\d+)\s*\/\s*(\d+)/g)]
+  return m.length ? Number(m[m.length - 1][2]) : null
 }
 
 async function main() {
@@ -121,11 +141,14 @@ async function main() {
   const childEnv = { ...process.env, PLATFORM_BASE: BASE }
 
   let failed = []
+  const actuals = []
   try {
     for (const script of CHECKS) {
       console.log(`\n[ui-check] ▶ ${script}`)
-      const code = await runInherit([script], childEnv)
+      const { code, out } = await runCapture([script], childEnv)
       if (code !== 0) failed.push(`${script}(退出码 ${code})`)
+      const n = actualFrom(out)
+      if (n != null) actuals.push({ script, n })
     }
   } catch (e) {
     cleanup()
@@ -140,7 +163,19 @@ async function main() {
     console.error(`\n[ui-check] 真机断言未通过：${failed.join('、')}`)
     process.exit(1)
   }
-  console.log(`\n[ui-check] ✅ 真机断言通过（${CHECKS.length} 支脚本 / ${declaredTotal} 条断言）`)
+  const actualTotal = actuals.reduce((s, a) => s + a.n, 0)
+  console.log(
+    `\n[ui-check] ✅ 真机断言通过：${CHECKS.length} 支脚本 · 实际执行 ${actualTotal} 条（源码里 check( 共 ${declaredTotal} 处）`,
+  )
+  if (actuals.length !== CHECKS.length) {
+    console.log(
+      `[ui-check] ⚠️ 只有 ${actuals.length}/${CHECKS.length} 支脚本报了「通过 N / N」→ 实际条数不完整，以各脚本自己的输出为准`,
+    )
+  } else if (actualTotal !== declaredTotal) {
+    console.log(
+      `[ui-check] ⚠️ 实际 ${actualTotal} 条 ≠ 源码 ${declaredTotal} 处 → 有 ${declaredTotal - actualTotal} 处本次没执行（多半在条件/循环分支里）`,
+    )
+  }
 }
 
 main().catch((e) => {
