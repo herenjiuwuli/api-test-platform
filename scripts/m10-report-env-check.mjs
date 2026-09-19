@@ -50,7 +50,13 @@ async function apiLayer(token) {
     !!group && (group.baseUrl || '').replace(/\/+$/, '') === EXPECT_BASE,
     group ? group.baseUrl : '(无)',
   )
-  check('这一组全是通过的（闭环 44/44）', !!group && group.passRate === 100, group ? `passRate=${group.passRate}%` : '(无)')
+  // 标签里刻意**不写死条数**：套件从 44 → 60 → 84 长过几轮，写死的标签会一直在撒谎，
+  // 而断言本身（passRate === 100）跟条数无关。真要报数就把实际值打出来。
+  check(
+    '这一组全是通过的（闭环没有红条）',
+    !!group && group.passRate === 100,
+    group ? `执行 ${group.runs} 次 / 通过率 ${group.passRate}%` : '(无)',
+  )
 
   const recent = (summary.recentRuns || []).filter((r) => String(r.caseName || '').startsWith('OA-'))
   check(
