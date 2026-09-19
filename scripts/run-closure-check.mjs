@@ -44,21 +44,58 @@ const DIST = path.join(ROOT, 'web', 'dist')
 // 闭环的四个环节，顺序不能乱：先有数据（seed:oa）才谈得上跑（test:oa），
 // 先有执行记录（test:oa）才谈得上 m10 从报告里读回「这一轮打的是哪个环境」。
 // `touchesDb: true` 的环节跑完，隔离库必须真的被动过 —— 这是下面那道守卫要用的（见注释）。
+// `what` 里**不写条数**：这些数脚本自己都会报（seed 报「已写入 OA 用例 N 条」、
+// m9/m10 报「通过 N / N」），抄一遍只是多一个会烂的地方 —— 收尾时由本脚本汇总实际值。
 const STEPS = [
-  { script: 'seed-oa-suite.mjs', what: '写入 OA 套件（84 条 + 12 个分组 + 定义并选中当前环境）', touchesDb: true },
+  { script: 'seed-oa-suite.mjs', what: '写入 OA 套件（用例链 + 分组标签 + 定义并选中当前环境）', touchesDb: true },
   { script: 'run-oa-suite.mjs', what: '让平台去打 office-oa（用例链；任一条失败即以非 0 退出）', touchesDb: true },
-  { script: 'scripts/m9-env-ui-check.mjs', what: '真机：环境变量集界面与页头徽标一致性（13 条）' },
-  { script: 'scripts/m10-report-env-check.mjs', what: '真机：从报告接口读回「这一轮实际打的是哪个环境」（11 条）' },
+  { script: 'scripts/m9-env-ui-check.mjs', what: '真机：环境变量集界面与页头徽标一致性' },
+  { script: 'scripts/m10-report-env-check.mjs', what: '真机：从报告接口读回「这一轮实际打的是哪个环境」' },
 ]
+
+// 真机断言脚本（收尾汇总条数用）—— 从 STEPS 推导，不另抄一份名单（抄了就会漂移）
+const CHECK_SCRIPTS = STEPS.filter((s) => s.script.startsWith('scripts/m')).map((s) => s.script)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-function runInherit(args, env) {
+/**
+ * 跑子脚本：**透传输出**（CI 里没人看被吞掉的日志）+ **抓它自报的实际条数**。
+ * 与 run-ui-check.mjs 同一套口径：写死的条数必然烂（本脚本第一版就把「84 / 24」
+ * 钉在注释和收尾文案里），而这两个数**脚本自己都会报** —— 那就别替它抄一遍。
+ */
+function runCapture(args, env) {
   return new Promise((resolve, reject) => {
-    const p = spawn(process.execPath, args, { cwd: ROOT, stdio: 'inherit', env })
-    p.on('exit', (c) => resolve(c ?? 1))
+    const p = spawn(process.execPath, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env })
+    let buf = ''
+    const onData = (d) => {
+      const s = d.toString()
+      buf += s
+      process.stdout.write(s)
+    }
+    p.stdout.on('data', onData)
+    p.stderr.on('data', onData)
+    p.on('exit', (c) => resolve({ code: c ?? 1, out: buf }))
     p.on('error', reject)
   })
+}
+
+/** 源码里写了多少处 `check(`（排除函数定义行 —— 那一行里也有 "check("，会被当成一条断言） */
+function countChecks(file) {
+  const re = /(^|[^a-zA-Z])check\(/
+  const defRe = /^\s*(export\s+)?(async\s+)?function\s+check\b/
+  return fs.readFileSync(path.join(ROOT, file), 'utf8').split(/\r?\n/).filter((l) => re.test(l) && !defRe.test(l)).length
+}
+
+/** 子脚本最后报的「通过 N / N」的分母（= 实际执行的真机断言数） */
+const actualFrom = (out) => {
+  const m = [...out.matchAll(/通过\s+(\d+)\s*\/\s*(\d+)/g)]
+  return m.length ? Number(m[m.length - 1][2]) : null
+}
+
+/** seed 自报的「已写入 OA 用例 N 条」 */
+const suiteFrom = (out) => {
+  const m = /已写入 OA 用例\s+(\d+)\s*条/.exec(out)
+  return m ? Number(m[1]) : null
 }
 
 async function probe(url) {
@@ -142,15 +179,22 @@ async function main() {
   }
 
   const failed = []
+  let suiteCount = null
+  const actuals = []
   try {
     for (const { script, what, touchesDb } of STEPS) {
       console.log(`\n[closure] ▶ ${script} —— ${what}`)
       const before = dbMtime()
-      const code = await runInherit([script], childEnv)
+      const { code, out } = await runCapture([script], childEnv)
       if (code !== 0) failed.push(`${script}(退出码 ${code})`)
       if (touchesDb && dbMtime() === before) {
         failed.push(`${script}(隔离库没被动过 —— 它多半写到别的库去了，检查 DB_PATH 有没有传下去)`)
       }
+      // seed 报「已写入 OA 用例 N 条」、m9/m10 报「通过 N / N」—— 都是脚本自己数的，别替它抄
+      const s = suiteFrom(out)
+      if (s != null) suiteCount = s
+      const n = actualFrom(out)
+      if (n != null) actuals.push({ script, n })
     }
   } catch (e) {
     cleanup()
@@ -162,7 +206,17 @@ async function main() {
     console.error(`\n[closure] 闭环未通过：${failed.join('、')}`)
     process.exit(1)
   }
-  console.log(`\n[closure] ✅ 闭环通过（${STEPS.length} 个环节：84 条接口用例 + 24 条真机断言）`)
+
+  const declaredTotal = CHECK_SCRIPTS.reduce((s, f) => s + countChecks(f), 0)
+  const actualTotal = actuals.reduce((s, a) => s + a.n, 0)
+  console.log(
+    `\n[closure] ✅ 闭环通过（${STEPS.length} 个环节：接口用例 ${suiteCount ?? '？'} 条 + 真机断言 ${actualTotal} 条）`,
+  )
+  if (actuals.length !== CHECK_SCRIPTS.length) {
+    console.log(`[closure] ⚠️ 只有 ${actuals.length}/${CHECK_SCRIPTS.length} 支真机脚本报了「通过 N / N」→ 条数以它们自己的输出为准`)
+  } else if (actualTotal !== declaredTotal) {
+    console.log(`[closure] ⚠️ 实际 ${actualTotal} 条 ≠ 源码 ${declaredTotal} 处 → 有 ${declaredTotal - actualTotal} 处本次没执行`)
+  }
 }
 
 main().catch((e) => {
