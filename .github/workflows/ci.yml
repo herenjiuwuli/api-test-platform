@@ -3,7 +3,7 @@ name: CI
 # M19：把四层测试接进 CI 做回归
 #   ① 静态扫描（前端未声明标识符等 —— 拦「build 过、真机一跑就 ReferenceError」）
 #   ② 构建（后端要托管 web/dist，E2E 依赖它）
-#   ③ 接口测试（vitest，183 条：鉴权 / 断言引擎 / 链路 / 环境 / 分组 / 通知）
+#   ③ 接口测试（vitest，211 条：鉴权 / 断言引擎 / 链路 / 环境 / 分组 / 通知 / 响应头 / query）
 #   ④ UI 测试（Playwright，11 条：路由守卫 / 真实登录 / 单条与分组运行 / 报告 / 增删）
 #
 # ⭐ 不下载浏览器：playwright.config.js 配了 channel: 'chrome'，
