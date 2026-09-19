@@ -48,9 +48,12 @@ const CHECKS = ['scripts/m11-suite-ui-check.mjs', 'scripts/m12-group-ui-check.mj
  */
 function countChecks(files) {
   const re = /(^|[^a-zA-Z])check\(/
+  // ⚠️ 排除**函数定义行**：`function check(...) {` 里也有 "check("。
+  //    office-oa 那边实测就这么多算了一处（82 vs 81）→ 差异提示误报成「有 1 处没执行」。
+  const defRe = /^\s*(export\s+)?(async\s+)?function\s+check\b/
   return files.map((f) => ({
     file: f,
-    n: fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\r?\n/).filter((l) => re.test(l)).length,
+    n: fs.readFileSync(path.join(ROOT, f), 'utf8').split(/\r?\n/).filter((l) => re.test(l) && !defRe.test(l)).length,
   }))
 }
 
