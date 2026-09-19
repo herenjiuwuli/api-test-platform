@@ -20,9 +20,11 @@
     "check:frontend:tpl": "node scripts/check-vue-tpl.mjs web/src",
     "check:frontend:refvalue": "node scripts/check-vue-refvalue.mjs web/src/views",
     "check:docs": "node scripts/check-doc-refs.mjs",
+    "check:ui": "node scripts/m11-suite-ui-check.mjs && node scripts/m12-group-ui-check.mjs",
+    "check:ui:auto": "node scripts/run-ui-check.mjs",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:e2e:report": "playwright show-report",
-    "verify": "npm run check:frontend && npm run check:docs && npm run build && npm test && npm run test:e2e"
+    "verify": "npm run check:frontend && npm run check:docs && npm run build && npm test && npm run test:e2e && npm run check:ui:auto"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

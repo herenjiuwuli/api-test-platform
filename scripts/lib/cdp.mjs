@@ -15,6 +15,17 @@ import fs from 'node:fs'
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// 目标地址统一从这里取。为什么抽出来：同一个「打哪个实例」的问题，
+// 这批脚本原本有**三种**写法 —— m9/m10 认 `PLATFORM_BASE`、m13 认 `ATP_BASE`、
+// m11/m12 直接把 `http://127.0.0.1:3001` 写死 —— 于是「换个端口跑一遍」时
+// 只有一半脚本跟得上（想拿隔离库/端口跑真机检查，这两条路都得能改）。
+// 现在 `PLATFORM_BASE` 是正名，`ATP_BASE` 作为历史别名保留（m13 的注释里提过）。
+export const platformBase = () =>
+  (process.env.PLATFORM_BASE || process.env.ATP_BASE || 'http://127.0.0.1:3001').replace(/\/+$/, '')
+
+// 被测系统 office-oa 的地址 —— 只有 m9/m10 用得到（它们要**同时**打两个系统）。
+export const oaBase = () => (process.env.OA_BASE || 'http://127.0.0.1:3200').replace(/\/+$/, '')
+
 const CHROME_CANDIDATES = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',

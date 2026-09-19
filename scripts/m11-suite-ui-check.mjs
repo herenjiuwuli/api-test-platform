@@ -11,9 +11,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { withBrowser, checks, PAGE_HELPERS, sleep, tempPlatformToken, loginByToken } from './lib/cdp.mjs'
+import { withBrowser, checks, PAGE_HELPERS, platformBase, sleep, tempPlatformToken, loginByToken } from './lib/cdp.mjs'
 
-const BASE = 'http://127.0.0.1:3001'
+// base 一律走 lib/cdp.mjs 的 platformBase()：一处认环境变量，别在各脚本里各写一种
+const BASE = platformBase()
 const STAMP = Date.now().toString(36)
 const c = checks()
 

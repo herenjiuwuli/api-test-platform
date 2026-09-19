@@ -6,12 +6,21 @@ name: CI
 #   ② 构建（后端要托管 web/dist，E2E 依赖它）
 #   ③ 接口测试（vitest，211 条：鉴权 / 断言引擎 / 链路 / 环境 / 分组 / 通知 / 响应头 / query）
 #   ④ UI 测试（Playwright，11 条：路由守卫 / 真实登录 / 单条与分组运行 / 报告 / 增删）
+#   ⑤ 真机断言（自写零依赖 CDP 脚本 m11 + m12，43 条：套件导入导出 / 用例分组）
+#
+# ⚠️ 为什么 ④ 和 ⑤ 都要留着（不是重复）：④ 是标准框架（自动等待 / 重试 / trace / 报告），
+#   ⑤ 是零依赖直连 CDP。两者覆盖面不一样 —— ⑤ 额外覆盖了 **套件往返（含脱敏、三种冲突策略）
+#   与分组（含负向对照：查无此组必须一条都不跑）**。之前 ⑤ 根本没进 CI，等于这两块在 UI 层零回归保护。
+#   （m9 / m10 是跨系统联调：要 office-oa 在 3200 且平台里有 seed:oa 数据，CI 里没有，故不进 CI；
+#     m13 是截图导览，产物 shots/ 刻意不进仓库，也不是断言门禁。）
 #
 # ⭐ 不下载浏览器：playwright.config.js 配了 channel: 'chrome'，
 #    用 GitHub runner（ubuntu-latest 镜像自带 Google Chrome stable）已装的 Chrome，省掉几百 MB 下载。
+#    ⑤ 的脚本同样复用系统 Chrome（scripts/lib/cdp.mjs 的 findChrome 会找 /usr/bin/google-chrome），
+#    所以同样不需要任何浏览器下载步骤。
 #
 # 顺序不能乱：静态扫描要在构建前（构建只为产物，扫描抓的是源码问题）；
-#            构建必须在 E2E 前（E2E 打的是构建后的 web/dist）。
+#            构建必须在 E2E 与 ⑤ 前（两者打的都是构建后的 web/dist）。
 
 on:
   push:
@@ -53,6 +62,11 @@ jobs:
 
       - name: ④ UI 测试（Playwright，用系统 Chrome）
         run: npm run test:e2e
+
+      - name: ⑤ 真机断言（自写零依赖 CDP 脚本 m11 + m12，43 条，覆盖套件往返与用例分组）
+        # 与本地跑的是**同一条命令**：它自己备隔离环境（data/ui-check.db + 3111 端口）、
+        # 自己起服务、跑完自己收。这样就不会出现「本地一套逻辑、CI 另一套」各自漂移。
+        run: npm run check:ui:auto
 
       - name: 失败时上传 Playwright 报告
         if: failure()

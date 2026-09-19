@@ -11,11 +11,12 @@
 // 前提：平台已在 3001 上跑（web/dist 是最新构建）。
 // 凭据：现场注册临时账号（密码运行时随机），不读也不写死任何既有凭据。
 
-import { checks, loginByToken, PAGE_HELPERS, tempPlatformToken, withBrowser } from './lib/cdp.mjs'
+import { checks, loginByToken, oaBase, PAGE_HELPERS, platformBase, tempPlatformToken, withBrowser } from './lib/cdp.mjs'
 
-const BASE = process.env.PLATFORM_BASE || 'http://127.0.0.1:3001'
+// base 一律走 lib/cdp.mjs 的 platformBase() / oaBase()：一处认环境变量，别在各脚本里各写一种
+const BASE = platformBase()
 const EXPECT_NAME = process.env.OA_ENV_NAME || 'office-oa（本地）'
-const EXPECT_BASE = (process.env.OA_BASE || 'http://127.0.0.1:3200').replace(/\/+$/, '')
+const EXPECT_BASE = oaBase()
 
 // 找到「按运行环境汇总」那张卡，把它的正文取出来 —— 断言要打在**页面真的渲染出的文字**上
 const PAGE_EXTRA = `

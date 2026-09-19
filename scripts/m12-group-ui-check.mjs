@@ -10,10 +10,16 @@
 //    顺便还能把「连带删除」这条行为一起验证掉。
 //    （修复前它不管 runs、也没有「删执行记录」的接口，脚本只能自己直连 SQLite 去删。）
 //
+// ⭐ 这个脚本可以在**空库**上独立跑（`run-ui-check.mjs` 就是这么用它的）：所有前置数据都由它自己造 ——
+//    用例自己建、分组自己建、连「当前环境」也自己临时建一个再还原。断言里不该出现「主人库里恰好有什么」。
+//    以前有两条不是这样：`opts.length >= 2`（指望库里有别的分组）和 `!!runNone.body.env.name`
+//    （指望主人已经选中了某个环境）—— 换个干净库跑就假红，看着像功能坏了，其实是脚本自己没带干粮。
+//
 // 跑法：node scripts/m12-group-ui-check.mjs   （需要平台在 3001 跑着）
-import { withBrowser, checks, PAGE_HELPERS, sleep, tempPlatformToken, loginByToken } from './lib/cdp.mjs'
+import { withBrowser, checks, PAGE_HELPERS, platformBase, sleep, tempPlatformToken, loginByToken } from './lib/cdp.mjs'
 
-const BASE = 'http://127.0.0.1:3001'
+// base 一律走 lib/cdp.mjs 的 platformBase()：一处认环境变量，别在各脚本里各写一种
+const BASE = platformBase()
 const STAMP = Date.now().toString(36)
 const c = checks()
 
@@ -77,6 +83,36 @@ c.check('updateCase 能改 group（部分更新）', upd.status === 200 && upd.b
 // 改回来，后面真机用 GROUP_A
 await j(`/api/cases/${caseId}`, { method: 'PUT', body: JSON.stringify({ group: GROUP_A }) })
 
+// 再建一条**属于另一个分组**的用例：这样「下拉里能看到 ≥2 个分组」这条断言
+// 就不必指望主人的库里存在别的分组。原先写的是 `opts.length >= 2` ——
+// 那不是功能断言，那是在断言「主人库里恰好有别的分组」，换个干净库跑必然假红。
+const caseB = await j('/api/cases', {
+  method: 'POST',
+  body: JSON.stringify({
+    name: `${OWN_PREFIX}用例B-${STAMP}`,
+    method: 'GET',
+    url: '{{base}}/health',
+    group: GROUP_B,
+    expected: { status: 200 },
+  }),
+})
+c.check('再建一条不同分组的用例（给「下拉有多个分组」当对照）', caseB.status === 201 && caseB.body?.group === GROUP_B, `status=${caseB.status} group=${caseB.body?.group}`)
+
+// ★ 让「env 快照」这条断言**自包含**：脚本自己建一个环境并设为当前。
+//   原先断言的是 `!!runNone.body.env.name` —— 隔离空库上必然假红，
+//   因为 `envSnapshot()` 对「没有当前环境」如实返回 null。
+//   也就是说那条断言实际在测「主人的库配没配环境」，而不是「空结果会不会把快照丢掉」。
+//   收尾会删掉这个临时环境并还原跑之前那个当前环境（不留副作用）。
+const envsBefore = (await j('/api/environments')).body || {}
+const prevActiveId = envsBefore.activeId ?? null
+const TEMP_ENV_NAME = `${OWN_PREFIX}环境-${STAMP}`
+const tempEnv = await j('/api/environments', {
+  method: 'POST',
+  body: JSON.stringify({ name: TEMP_ENV_NAME, baseUrl: 'http://127.0.0.1:3999', headers: {}, vars: {} }),
+})
+const tempEnvId = tempEnv.body?.id
+await j('/api/environments/active', { method: 'PUT', body: JSON.stringify({ id: tempEnvId }) })
+
 // ★ 负向对照：run-all 传一个查无此组的分组，必须「一条都不跑」。
 //   如果 group 过滤被忽略（比如参数名写错），这里会跑库里全部用例（几十条），
 //   total 立刻从 0 变成几十 —— 这条断言就是用来钉住「过滤真的生效」的。
@@ -86,7 +122,11 @@ c.check(
   runNone.status === 200 && runNone.body?.total === 0 && runNone.body?.filter === NO_SUCH_GROUP,
   `total=${runNone.body?.total} filter=${runNone.body?.filter}`,
 )
-c.check('空结果也说得清「用的哪个环境」（env 快照不因空结果缺席）', !!runNone.body?.env?.name, `env=${runNone.body?.env?.name || '(无)'}`)
+c.check(
+  '空结果也说得清「用的哪个环境」（env 快照不因空结果缺席）',
+  runNone.body?.env?.name === TEMP_ENV_NAME,
+  `env=${runNone.body?.env?.name || '(无)'}（预期脚本自己设的「${TEMP_ENV_NAME}」）`,
+)
 
 const summary = await j('/api/reports/summary')
 c.check('报告接口有 byGroup（与 byEnv 同一个聚合套路）', Array.isArray(summary.body?.byGroup), `byGroup 长度=${summary.body?.byGroup?.length}`)
@@ -163,8 +203,8 @@ await withBrowser(
     await cdp.waitFor(`document.querySelectorAll('.el-select-dropdown__item').length > 0`, '分组下拉展开')
     const opts = await cdp.eval(`[...document.querySelectorAll('.el-select-dropdown__item')].map(e=>e.innerText.trim())`)
     c.check(
-      '下拉里列出了现有分组（含 OA 的八个组与我这次造的组）',
-      opts.includes(GROUP_A) && opts.length >= 2,
+      '下拉里的分组是从库里读出来的（我这次造的两个组都在）',
+      opts.includes(GROUP_A) && opts.includes(GROUP_B),
       `共 ${opts.length} 个：` + opts.slice(0, 6).join(' / ') + (opts.length > 6 ? ' …' : ''),
     )
 
@@ -266,6 +306,18 @@ c.check(
   '★ 收尾：执行记录由删用例连带删除（脚本不再需要直连库清理）',
   leftRuns === 0 && runsDeletedByApi === expectedInGroup,
   `接口报连带删了 ${runsDeletedByApi} 条（预期 ${expectedInGroup}），复查剩 ${leftRuns} 条`,
+)
+
+// 收尾：临时环境删掉，并把「当前环境」还原成跑之前那个。
+// m12 原本只碰自己造的用例；现在为了自包含多碰了一个环境 —— 那就要连它一起还回去，
+// 否则「跑个检查」会把主人选中的环境改掉（在开发库上这是真实副作用）。
+await j(`/api/environments/${tempEnvId}`, { method: 'DELETE' })
+await j('/api/environments/active', { method: 'PUT', body: JSON.stringify({ id: prevActiveId }) })
+const envsAfter = (await j('/api/environments')).body || {}
+c.check(
+  '收尾：临时环境已删、当前环境还原为跑之前那个',
+  !(envsAfter.items || []).some((e) => e.name === TEMP_ENV_NAME) && envsAfter.activeId === prevActiveId,
+  `剩 ${(envsAfter.items || []).length} 个环境，activeId=${envsAfter.activeId}（预期 ${prevActiveId}）`,
 )
 
 c.finish()

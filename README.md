@@ -66,7 +66,16 @@ npm run check:frontend    # 静态扫描：前端未声明标识符 / 模板漏�
 npm run check:docs        # 静态扫描：README / docs / CI 里引用的文件必须真的存在
 cd web && npm run build   # 前端产物 web/dist（E2E 打的是这份产物，必须先构建）
 npm run test:e2e   # Playwright 11 条真浏览器 UI 测试（channel:'chrome' 复用系统 Chrome，不下载浏览器；独立库 data/e2e.db 不污染开发数据）
+npm run check:ui:auto     # CDP 真机断言 45 条（m11 套件往返 + m12 分组）：自己起隔离实例、跑完自己收，一条命令即可
+npm run verify     # 上面全部串起来跑一遍（五层：静态扫描 → 构建 → vitest → E2E → 真机断言）
 ```
+
+> ⭐ **`check:ui:auto` 为什么要存在**：m11/m12 这批真机断言以前**既不在 CI 也不在 `verify` 里** ——
+> 也就是「提交前一条命令复现全部检查」这句话，对套件往返和分组这两块是不成立的（改了没有 UI 层回归）。
+> 缺的就是「有人记得手动跑」：现在它自己备隔离环境（`data/ui-check.db` + 3111 端口，绝不碰你的
+> `data/app.db`）、自己起服务、跑完自己收，所以能像 `test:e2e` 一样直接挂进 verify 和 CI。
+> 另有 m9/m10（跨系统：要 office-oa 在 3200 且平台里有 `seed:oa` 数据）与 m13（截图导览，产物不进仓库）
+> 不在这条命令里 —— 单独 `node scripts/m9-env-ui-check.mjs` 跑。
 
 测穿配套的被测系统（闭环）：
 
@@ -230,14 +239,19 @@ M7 之后平台里有了一条 44 条的 office-oa 用例链，但它是**长在
 
 落点：`test_cases` 加 `"group"` 列（DEFAULT ''，`group` 是 SQL 保留字故双引号引用）；`createCase` 收 group、`listCases(group?)` 可按组查、`updateCase` 可改、`normalize` 还原；套件导出/导入**保留 group**（M11 协同）；编辑器可填分组；列表页有分组标签 + 筛选 + 「运行该分组」按钮。
 
-实际验证：`node scripts/m12-group-ui-check.mjs`（24 条 = 接口层 12 + 真机层 12），vitest 新增 7 例分组测试（`tests/group.test.js`）。
+实际验证：`node scripts/m12-group-ui-check.mjs`（26 条 = 接口层 12 + 真机层 11 + 收尾 3），vitest 新增 7 例分组测试（`tests/group.test.js`）。
 真机层用 CDP **真的在下拉里选中分组**，断言「列表真的只剩这一组」（结果里不含任何 `OA-` 行）、
 未选分组时「运行该分组」是禁用的（避免误点成「跑全部」）、点下去后汇总弹窗写明「筛选：分组：X」
 且结果表条数 = 组内条数。接口层的负向对照是「`run-all` 传一个查无此组 → `total` 必须是 0」：
 如果过滤被忽略，这里会变成「把库里几十条全跑一遍」，`total` 立刻暴露。
-收尾除了删用例，还要删掉本次跑出来的**执行记录** —— `deleteCase` 不级联删 `runs`，
-只删用例的话，报告里会永远多出一个指向已删除用例的 `用例#id`。
+收尾除了删用例，还要确认本次跑出来的**执行记录**也被带走了 —— `deleteCase` 在 M13 之后会级联删 `runs`
+（不级联的话，报告里会永远多出一个指向已删除用例的 `用例#id`），所以这条断言同时钉住了「级联删除」这个行为。
 OA 套件 52 条按 8 组打标后跑闭环仍为 **52/52**。
+
+> ⭐ **这个脚本可以在空库上独立跑**（`npm run check:ui:auto` 就是这么用它的）：用例、分组、连「当前环境」
+> 全部由它自己临时造、跑完自己还原。以前有两条断言不是这样 —— `opts.length >= 2`（指望库里恰好有别的分组）
+> 和 `!!runNone.body.env.name`（指望主人已经选中了某个环境）—— 在干净库上必然假红。
+> 换个环境就红的断言，测的不是功能，是「主人库里恰好有什么」：**这类隐含依赖只有真的把脚本放进隔离环境才会暴露。**
 
 ## 删用例的连带清理（M13）
 
@@ -309,7 +323,7 @@ npm run build        # E2E 打的是构建产物，必须先构建
 npm run test:e2e     # 11 条全绿 + 干净退出（~1 分钟）
 ```
 
-CI（`.github/workflows/ci.yml`）四层回归：静态扫描（前端 + **文档引用**）→ 构建 → vitest → E2E，失败自动传 Playwright 报告。
+CI（`.github/workflows/ci.yml`）五层回归：静态扫描（前端 + **文档引用**）→ 构建 → vitest → E2E → **真机断言（m11+m12，45 条）**，失败自动传 Playwright 报告。
 
 ## 通知降噪与保留策略（M20）
 
@@ -401,14 +415,15 @@ playwright.config.js  E2E 配置：channel:'chrome' 复用系统 Chrome、独立
 e2e/seed-e2e.mjs     E2E 确定性种子：复用真实 seed.js + 补 2 条离线必绿/必红用例（断言不依赖外网）
 e2e/helpers.js       E2E 公共层：真实表单登录 / hash 路由判据 / 等数据到位 / ★ about:blank 收尾 fixture（拆掉 SSE 长连接防挂死）
 scripts/run-e2e.mjs  E2E 包装器：自管服务生命周期（起 → 等 /health → 跑 Playwright → 杀）——绕开 Windows 上 Playwright 收尾杀不掉 webServer 的坑
-.github/workflows/ci.yml  CI：静态扫描（前端 + 文档引用）→ 构建 → vitest → E2E（ubuntu 上 webServer 收尾正常，直跑 playwright test）
+.github/workflows/ci.yml  CI：静态扫描（前端 + 文档引用）→ 构建 → vitest → E2E → 真机断言（m11+m12，45 条）
 tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/runnerQuery.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js + tests/seed.test.js  共 17 个文件 / 211 例，全离线
 e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + e2e/force-exit-reporter.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；force-exit reporter + 看门狗重试绕开本机 flaky 收尾；CI 走 .github/workflows/ci.yml）
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
 scripts/m11-suite-ui-check.mjs   套件导出/导入验证（接口层脱敏 + 真机层真的选文件导入；跑完自动清场）
-scripts/m12-group-ui-check.mjs   用例分组验证（接口层 + 真机层选分组/按组运行；收尾连执行记录一起清，报告不留孤儿）
-scripts/lib/cdp.mjs              真机检查的公共底座（起 Chrome / CDP 客户端 / 页面助手 / 临时账号 token）
+scripts/m12-group-ui-check.mjs   用例分组验证（接口层 + 真机层选分组/按组运行；**可在空库上独立跑**：用组、分组、当前环境全自己造自己还；收尾连执行记录一起清，报告不留孤儿）
+scripts/run-ui-check.mjs         「一条命令跑完真机断言」的包装（m11+m12）：自备隔离库 data/ui-check.db + 3111 端口、自起服务、跑完自杀 — npm run check:ui:auto
+scripts/lib/cdp.mjs              真机检查的公共底座（起 Chrome / CDP 客户端 / 页面助手 / 临时账号 token / **platformBase()·oaBase() 统一「打哪个实例」**）
 Dockerfile / .dockerignore / docker-compose.yml / DEPLOY.md   部署（M5）
 web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端同源托管）
   web/src/auth.js     前端会话状态（token + reactive session）

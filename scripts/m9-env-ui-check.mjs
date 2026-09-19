@@ -12,10 +12,11 @@
 // 凭据：现场注册临时账号（密码运行时随机生成），不读也不写死任何既有凭据。
 // 副作用：会临时建一个名为「M9 真机验证（临时）」的环境，收尾删掉并把当前环境还原。
 
-import { checks, loginByToken, PAGE_HELPERS, tempPlatformToken, withBrowser } from './lib/cdp.mjs'
+import { checks, loginByToken, oaBase, PAGE_HELPERS, platformBase, tempPlatformToken, withBrowser } from './lib/cdp.mjs'
 
-const BASE = process.env.PLATFORM_BASE || 'http://127.0.0.1:3001'
-const OA = process.env.OA_BASE || 'http://127.0.0.1:3200'
+// base 一律走 lib/cdp.mjs 的 platformBase() / oaBase()：一处认环境变量，别在各脚本里各写一种
+const BASE = platformBase()
+const OA = oaBase()
 const ENV_NAME = process.env.OA_ENV_NAME || 'office-oa（本地）'
 const TEMP_ENV = 'M9 真机验证（临时）'
 

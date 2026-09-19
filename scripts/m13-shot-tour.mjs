@@ -10,7 +10,7 @@
 //
 // 用法：
 //   node scripts/m13-shot-tour.mjs                 # 默认打 http://127.0.0.1:3001
-//   ATP_BASE=http://localhost:3001 node scripts/m13-shot-tour.mjs
+//   PLATFORM_BASE=http://localhost:3001 node scripts/m13-shot-tour.mjs   （ATP_BASE 仍兼容）
 //   SKIP_RUN=1 node scripts/m13-shot-tour.mjs      # 跳过「全部运行」（改脚本时反复调试用）
 //   TOUR_TIMEOUT_MS=300000 node ...                # 改看门狗阈值（默认 8 分钟）
 //
@@ -22,9 +22,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { withBrowser, checks, PAGE_HELPERS, tempPlatformToken, loginByToken, sleep } from './lib/cdp.mjs'
+import { withBrowser, checks, PAGE_HELPERS, platformBase, tempPlatformToken, loginByToken, sleep } from './lib/cdp.mjs'
 
-const BASE = process.env.ATP_BASE || 'http://127.0.0.1:3001'
+// base 一律走 lib/cdp.mjs 的 platformBase()：一处认环境变量，别在各脚本里各写一种
+const BASE = platformBase()
 const OUT = path.resolve(fileURLToPath(new URL('../shots', import.meta.url)))
 
 const c = checks()
