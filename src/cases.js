@@ -1,5 +1,6 @@
 // 用例 CRUD（基于 db.js）。用例 = 一次 HTTP 测试的定义。
 // 字段：name / method / url / headers / body / bodyType（M8）/ files（M8）
+//      / query（M6 补：?k=v 形式的查询参数，同样过变量渲染）
 //      / expected(status, contains, maxTimeMs, jsonChecks)
 //      / extract（M4：从本用例响应里按 JSONPath 抽变量，供链上后面的用例用）
 //      / group（M12：业务分组标签，如「审批引擎」「站内通知」，用于筛选/按组跑/报告）
@@ -12,8 +13,8 @@ export function createCase(input = {}) {
   if (!name) throw new Error('用例 name 必填')
   if (!input.url) throw new Error('用例 url 必填')
   const stmt = db.prepare(
-    `INSERT INTO test_cases (name, method, url, headers_json, body_json, body_type, files_json, expected_json, extract_json, "group")
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO test_cases (name, method, url, headers_json, body_json, body_type, files_json, query_json, expected_json, extract_json, "group")
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const info = stmt.run(
     name,
@@ -23,6 +24,7 @@ export function createCase(input = {}) {
     input.body !== undefined ? JSON.stringify(input.body) : '',
     normalizeBodyType(input.bodyType),
     JSON.stringify(normalizeFiles(input.files)),
+    JSON.stringify(normalizeQuery(input.query)),
     JSON.stringify(input.expected || {}),
     JSON.stringify(normalizeExtract(input.extract)),
     String(input.group || '').trim(),
@@ -57,6 +59,7 @@ export function updateCase(id, input = {}) {
     body: input.body !== undefined ? input.body : existing.body,
     bodyType: input.bodyType !== undefined ? normalizeBodyType(input.bodyType) : existing.bodyType,
     files: input.files !== undefined ? normalizeFiles(input.files) : existing.files,
+    query: input.query !== undefined ? normalizeQuery(input.query) : existing.query,
     expected: input.expected !== undefined ? input.expected : existing.expected,
     extract: input.extract !== undefined ? normalizeExtract(input.extract) : existing.extract,
     group: input.group !== undefined ? String(input.group).trim() : existing.group,
@@ -65,7 +68,7 @@ export function updateCase(id, input = {}) {
   if (!merged.url) throw new Error('用例 url 必填')
   getDb()
     .prepare(
-      `UPDATE test_cases SET name=?, method=?, url=?, headers_json=?, body_json=?, body_type=?, files_json=?, expected_json=?, extract_json=?, "group"=? WHERE id=?`,
+      `UPDATE test_cases SET name=?, method=?, url=?, headers_json=?, body_json=?, body_type=?, files_json=?, query_json=?, expected_json=?, extract_json=?, "group"=? WHERE id=?`,
     )
     .run(
       merged.name,
@@ -75,6 +78,7 @@ export function updateCase(id, input = {}) {
       merged.body !== undefined ? JSON.stringify(merged.body) : '',
       merged.bodyType,
       JSON.stringify(normalizeFiles(merged.files)),
+      JSON.stringify(normalizeQuery(merged.query)),
       JSON.stringify(merged.expected || {}),
       JSON.stringify(normalizeExtract(merged.extract)),
       merged.group,
@@ -154,6 +158,7 @@ function normalize(row) {
     body: row.body_json ? safeParse(row.body_json, null) : undefined,
     bodyType: normalizeBodyType(row.body_type),
     files: safeParse(row.files_json, []),
+    query: safeParse(row.query_json, {}),
     expected: safeParse(row.expected_json, {}),
     extract: safeParse(row.extract_json, []),
     group: row.group || '',
@@ -174,6 +179,20 @@ function normalizeFiles(files) {
       if (f.contentType) out.contentType = String(f.contentType).trim()
       return out
     })
+}
+
+// query 只留能拼进 URL 的项：键非空、值是标量（对象/数组拼不进 query string，早报错好过发出畸形请求）
+function normalizeQuery(query) {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) return {}
+  const out = {}
+  for (const [k, v] of Object.entries(query)) {
+    const key = String(k).trim()
+    if (!key) continue
+    if (v === null || v === undefined) continue
+    if (typeof v === 'object') continue
+    out[key] = String(v)
+  }
+  return out
 }
 
 // extract 只留合法项（有 name 有 path），挡住手抖写错的结构进库

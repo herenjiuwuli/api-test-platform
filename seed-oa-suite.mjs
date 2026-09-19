@@ -699,6 +699,70 @@ const cases = [
     headers: auth('token_emp'),
     expected: { status: 200 },
   },
+
+  // ── K. 统计报表（OA M6）──────────────────────────────────────
+  // 靶子是聚合接口的「数据范围权限」：单据详情的越权面是「一行」，
+  // 统计的越权面是「一批」—— 员工反复按状态请求就能拼出全公司组织画像。
+  // scope 超出自己最高可用范围必须 403（静默降级会让错误结论无法察觉）。
+  {
+    name: `${TAG}73 员工默认统计：scope 落在 mine`,
+    method: 'GET',
+    url: `{{base}}/api/stats/overview`,
+    headers: auth('token_emp'),
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.scope', op: 'eq', value: 'mine' },
+        { path: '$.maxScope', op: 'eq', value: 'mine' },
+      ],
+    },
+  },
+  {
+    name: `${TAG}74 ★ 员工请求 scope=all → 403（聚合接口不静默降级）`,
+    method: 'GET',
+    url: `{{base}}/api/stats/overview`,
+    headers: auth('token_emp'),
+    query: { scope: 'all' },
+    expected: { status: 403, contains: 'mine' },
+  },
+  {
+    name: `${TAG}75 经理可用本部门范围（dept）`,
+    method: 'GET',
+    url: `{{base}}/api/stats/overview`,
+    headers: auth('token_other_mgr'),
+    query: { scope: 'dept' },
+    expected: { status: 200, jsonChecks: [{ path: '$.scope', op: 'eq', value: 'dept' }] },
+  },
+  {
+    name: `${TAG}76 经理请求 all 仍 → 403（request:read:all 才是全公司钥匙）`,
+    method: 'GET',
+    url: `{{base}}/api/stats/overview`,
+    headers: auth('token_other_mgr'),
+    query: { scope: 'all' },
+    expected: { status: 403 },
+  },
+  {
+    name: `${TAG}77 admin 全公司统计：状态分布之和 == 总数（分项自洽）`,
+    method: 'GET',
+    url: `{{base}}/api/stats/overview`,
+    headers: auth('token_admin'),
+    query: { scope: 'all' },
+    expected: {
+      status: 200,
+      jsonChecks: [
+        { path: '$.scope', op: 'eq', value: 'all' },
+        { path: '$.requests.total', op: 'gte', value: 3 },
+        { path: '$.monthly', op: 'exists' },
+        { path: '$.efficiency.archivedCount', op: 'gte', value: 1 },
+      ],
+    },
+  },
+  {
+    name: `${TAG}78 未登录拉统计 → 401`,
+    method: 'GET',
+    url: `{{base}}/api/stats/overview`,
+    expected: { status: 401 },
+  },
 ]
 
 // ── M12：按 OA-NN 编号给每条用例打上业务分组标签 ───────────────────────
@@ -718,7 +782,8 @@ function groupOf(name) {
   if (n <= 44) return '附件全周期'
   if (n <= 52) return '站内通知'
   if (n <= 60) return '导出'
-  return '会议室'
+  if (n <= 72) return '会议室'
+  return '统计'
 }
 for (const c of cases) c.group = groupOf(c.name)
 

@@ -125,6 +125,11 @@ function migrate(db) {
   // 真实监控的惯例是「成功静默、失败才喊人」。任务级开关（默认 all 保持 M17 行为），失败侧
   // 指 warn（跑了但有断言失败）+ error（没跑成/用例已删）——这两档无论什么模式都通知。
   addColumn(`ALTER TABLE schedules ADD COLUMN notify_on TEXT NOT NULL DEFAULT 'all'`)
+  // M6（补能力）：查询参数。由来和 runner 那段一样 —— office-oa 的统计接口按 ?scope= 返回
+  // 不同数据范围，用例里写了 query 却因为**表里没有这一列**而在入库时被丢掉，
+  // 于是「员工请求 scope=all 应 403」这种越权断言永远测不到（服务器根本没收到参数）。
+  // 教训：执行器支持了还不算完，**持久化层漏一列就等于能力不存在**。
+  addColumn(`ALTER TABLE test_cases ADD COLUMN query_json TEXT NOT NULL DEFAULT '{}'`)
 }
 
 export function closeDb() {

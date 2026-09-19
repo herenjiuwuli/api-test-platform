@@ -16,6 +16,7 @@ import { applyExtract, createVarBag, missingVarNote, renderTemplate } from './va
 /**
  * 执行单个用例。
  * @param {{id?:number,name?:string,method?:string,url:string,headers?:object,body?:any,
+ *          query?:Record<string,string>,
  *          bodyType?:'json'|'raw'|'form-data',files?:Array<{name:string,fixture?:string,base64?:string,filename?:string,contentType?:string}>,
  *          expected?:{status?:number,contains?:string,maxTimeMs?:number,jsonChecks?:Array<{path:string,op:string,value?:any}>,
  *                     headers?:Array<{name:string,op:'exists'|'eq'|'contains',value?:any}>},
@@ -40,13 +41,26 @@ export async function runCase(def, { persist = true, vars, env } = {}) {
   let missingNote = null
   try {
     // ① 先渲染模板：把 {{token}} 之类的占位换成变量袋里的实际值（文件名里也允许写变量）
-    const url = renderTemplate(def.url, bag)
+    let url = renderTemplate(def.url, bag)
     // 请求头：环境头是默认值，用例里手写的同名头优先（大小写不敏感）
     const headers = renderTemplate(mergeHeaders(activeEnv ? activeEnv.headers : {}, def.headers || {}), bag)
     const body = def.body !== undefined ? renderTemplate(def.body, bag) : undefined
     const files = renderTemplate(def.files || [], bag)
+    // 查询参数（M6 补）：对象 → 拼到 URL。值同样过变量渲染（{{token_x}} 能进 query）。
+    // 之前执行器发不了 query string —— SUT 长出「同一 URL 按参数返回不同范围」的统计接口时，
+    // 这个缺口第一次被真实需求顶出来（与 M8 的 multipart 同一个故事）。
+    let queryMissing = []
+    if (def.query && typeof def.query === 'object') {
+      const parts = []
+      for (const [k, v] of Object.entries(def.query)) {
+        const rendered = renderTemplate(String(v), bag)
+        queryMissing.push(...rendered.missing)
+        parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(rendered.value)}`)
+      }
+      if (parts.length) url.value += (url.value.includes('?') ? '&' : '?') + parts.join('&')
+    }
     const missing = [
-      ...new Set([...url.missing, ...headers.missing, ...(body ? body.missing : []), ...files.missing]),
+      ...new Set([...url.missing, ...headers.missing, ...(body ? body.missing : []), ...files.missing, ...queryMissing]),
     ]
     missingNote = missingVarNote(missing)
 
