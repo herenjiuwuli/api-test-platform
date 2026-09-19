@@ -61,7 +61,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 13 条「自测」用例（覆盖全断言维度，含 4 条打外网）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 206 例全绿（全离线）
+npm test           # vitest 211 例全绿（全离线）
 cd web && npm run build   # 前端产物 web/dist（E2E 打的是这份产物，必须先构建）
 npm run test:e2e   # Playwright 11 条真浏览器 UI 测试（channel:'chrome' 复用系统 Chrome，不下载浏览器；独立库 data/e2e.db 不污染开发数据）
 ```
@@ -75,7 +75,7 @@ npm run test:oa    # 让平台去打当前环境指向的 office-oa（会先把�
                    # 等价于 POST /api/run-all {"prefix":"OA-"}；任一条失败即以非 0 退出，可挂 CI
 ```
 
-> ⭐ 这条闭环（含八个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界 → 已在 M8 补掉** / **变量缺失提示被异常分支吃掉** / **会撒谎的环境徽标** / **「配置是活的、历史是死的」** / **只能读响应体的能力边界 → 已在 M14 补掉，顺带撞出 `res.text()` 会吃掉 BOM**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
+> ⭐ 这条闭环（含九个真实发现：旧进程陷阱 / 断言引擎多匹配语义坑 / 成对断言 / **执行器只发 JSON 的能力边界 → 已在 M8 补掉** / **变量缺失提示被异常分支吃掉** / **会撒谎的环境徽标** / **「配置是活的、历史是死的」** / **只能读响应体的能力边界 → 已在 M14 补掉，顺带撞出 `res.text()` 会吃掉 BOM** / **第三处边界：执行器、表结构、持久化三层里只要漏一层（`test_cases` 没存 query），用例写的 `?scope=` 就入库即丢、断言照样全绿 —— 一个让测试误以为通过的 bug**）见 [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md)。
 
 ## 鉴权说明（M4）
 
@@ -357,13 +357,16 @@ M20 之前的通知都只活在平台页面里——人不在电脑前就收不�
 | **M21** | **通知出口（webhook 外呼）**：`GET/PUT /api/notifications/webhook` 配置出口地址（settings KV，http/https 校验），失败侧（warn/error）通知落库后 JSON POST 出去（可指向飞书机器人 / hermes / 任意收 JSON 端点）；`forwardToWebhook` **永不抛错**（3s 超时，错误全转返回值）——出口挂了不影响调度本体、站内记录一条不丢。⭐ 顺带根治本机 E2E「跑完不退出」：force-exit reporter（onTestEnd 强退）+ 输出看门狗（60s 无输出判挂死）+ 自动重试，5 连跑全 EXIT=0（含一次真实自愈） | ✅ 已完成（206 例接口 + 11 条 E2E + OA 60 条） |
 | **M22** | **数据自洽：把「自测」用例组收成一个真源**。① 散落的历史示例用例（无分组、其中 5 条是红的、还有一条名字是乱码）收敛为分组 `自测`，由 `seed.js` **单一真源幂等维护**（13 条，覆盖状态码/包含/耗时/JSONPath/响应头 5 类断言 + 鉴权与路由语义），报告页一眼区分「测平台自己」与「测 OA」；② 修掉 `seed.js` **自己写错的 JSONPath 方言**——`$.1.name`（本平台只认 `$[1]`）求值静默返回 0 匹配，导致**每跑一次 seed 就往库里埋一条必红用例**，「全部运行」长期停在 68/74；③ 新增 `tests/seed.test.js` 9 例：不许出现 `$.1` 方言、不许出现期望 405、断言维度覆盖齐全、外网依赖名字必须带前缀、**幂等性**、以及「历史遗留名字（`示例-*` / `健康检查-*`）能被清干净」；④ 截图导览脚本的演示对象从「库里捡一条红的」改成**自建自删的临时用例**，不再依赖偶然数据；收尾删除写进 **`finally` + 看门狗**（不再只写在正常路径末尾），并给 CDP 的每次调用补上超时 —— 起因是它曾在一次 `eval` 上**挂死 3 小时 31 分**，把一条「每分钟触发」的定时任务留在库里无人看管地跑。⭐ 一句话：**种子数据也是代码，也会写出错的断言，也该有测试。** | ✅ 已完成（206 例接口 + 11 条 E2E + OA 60 条） |
 
+⭐ 注：表里的「N 例 / OA N 条」是**该里程碑完成当时**的数字，不是当前值（历史不该被后一轮改写）。
+当前规模见本文开头：**211 个单测（17 个文件）+ 11 条 E2E + OA 套件 84 条**。
+
 ### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
 
 | 文档 | 用途 |
 |---|---|
-| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M19 逐轮 + 踩坑 13 条 |
-| [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md) | 闭环记录：用本平台测穿 office-oa 的全过程 + 八个真实发现 |
-| [`docs/面试弹药-api-test-platform.md`](docs/面试弹药-api-test-platform.md) | 讲什么：10 个技术亮点 + 16 道深挖题 + 5 个「工具自己被抓出来的缺陷」 |
+| [`docs/项目全讲.md`](docs/项目全讲.md) | 项目讲解（教学 / 作品集博客口径），M1–M22 逐轮 + 12 个技术亮点 + 踩坑 13 条 |
+| [`docs/测穿-office-oa-闭环.md`](docs/测穿-office-oa-闭环.md) | 闭环记录：用本平台测穿 office-oa 的全过程（十轮）+ 九个真实发现 |
+| [`docs/面试弹药-api-test-platform.md`](docs/面试弹药-api-test-platform.md) | 讲什么：10 个技术亮点 + 18 项「我改过的点」候选清单 + 17 道深挖题 + 6 个「平台自己被抓出来的缺陷 / 边界」 |
 | [`docs/简历弹药-api-test-platform.md`](docs/简历弹药-api-test-platform.md) | 简历上写什么：bullet + 18 项「我改过的点」shortlist + 防御深度 |
 | [`docs/关源码复现-api-test-platform.md`](docs/关源码复现-api-test-platform.md) | **会不会写**：12 道「关掉源码写出来」练习（含示范轮 + 评分标准 + 错题本模板） |
 
@@ -397,7 +400,7 @@ e2e/seed-e2e.mjs     E2E 确定性种子：复用真实 seed.js + 补 2 条离�
 e2e/helpers.js       E2E 公共层：真实表单登录 / hash 路由判据 / 等数据到位 / ★ about:blank 收尾 fixture（拆掉 SSE 长连接防挂死）
 scripts/run-e2e.mjs  E2E 包装器：自管服务生命周期（起 → 等 /health → 跑 Playwright → 杀）——绕开 Windows 上 Playwright 收尾杀不掉 webServer 的坑
 .github/workflows/ci.yml  CI：静态扫描 → 构建 → vitest → E2E（ubuntu 上 webServer 收尾正常，直跑 playwright test）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js  共 206 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/runnerQuery.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js + tests/seed.test.js  共 17 个文件 / 211 例，全离线
 e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + e2e/force-exit-reporter.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；force-exit reporter + 看门狗重试绕开本机 flaky 收尾；CI 走 .github/workflows/ci.yml）
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）
@@ -412,9 +415,9 @@ web/              Vue3 + Element Plus 前端（构建产物 web/dist 由后端�
   src/views/CaseEditor.vue 请求编辑器（含 JSON 断言编辑）
   src/views/Reports.vue    报告页（统计/明细/定时任务管理）
 docs/             面试与讲解材料（诚实口径，详见上面「面试材料」表）
-  docs/项目全讲.md                  项目讲解（M1–M19 + 踩坑 13 条）
-  docs/测穿-office-oa-闭环.md        闭环记录 + 八个真实发现
-  docs/面试弹药-api-test-platform.md  亮点 / 深挖题 / 自曝缺陷
-  docs/简历弹药-api-test-platform.md  简历 bullet / 我改过的点 shortlist
+  docs/项目全讲.md                  项目讲解（M1–M22 + 12 个技术亮点 + 踩坑 13 条）
+  docs/测穿-office-oa-闭环.md        闭环记录 + 九个真实发现
+  docs/面试弹药-api-test-platform.md  10 个技术亮点 / 17 道深挖题 / 6 个自曝缺陷
+  docs/简历弹药-api-test-platform.md  简历 bullet / 18 项「我改过的点」shortlist
   docs/关源码复现-api-test-platform.md 关源码复现练习（12 题 + 示范轮 + 评分标准）
 ```
