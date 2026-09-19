@@ -35,7 +35,8 @@
 - `.length` 为什么**只在数组上**才特殊处理？
 
 ### 2. 断言引擎 —— 4 类断言 + 8 个操作符
-> 对照 `src/runner.js`：`runCase()` 的断言段（约 70–106 行）+ `evalJsonCheck()`（约 183–204 行）
+> 对照 `src/runner.js`：`runCase()` 的断言段 + `evalJsonCheck()` + 它下方的 `looseEq()` / `numeric()`。
+> （**故意不写行号** —— 行号会随每次改动腐烂，用函数名定位即可：`grep -n "function evalJsonCheck" src/runner.js`）
 
 任务：写出 `expected` 的四类断言判定 —— `status`（状态码相等）/ `contains`（响应原文含子串）/
 `maxTimeMs`（耗时上限）/ `jsonChecks`（JSONPath 字段断言）；再写出 8 个 op：
@@ -44,6 +45,18 @@
 **必须讲清的一条语义**（面试高频）：用了 `[*]` 产生多匹配时 ——
 `contains` = **任一命中**，`exists` = 有没有匹配，其余 op = 取**首个**匹配值。
 追问会来：「为什么不干脆全部『任一』，或者全部『首个』？」
+
+**必须讲清的第二条语义**：`eq` 走的是 **`looseEq`**，不是 `===` —— 两边都是 number 才用 `a === b`，
+其余一律 `String(a) === String(b)`。
+
+为什么必须宽松：**平台自己踩过这个坑**。闭环第 ⑩ 条 —— 用 `{{rid}}` 做用例链时，替换进去的是**字符串** `"7"`，
+而响应里的 `requestId` 是**数字** `7`，严格比较直接**假失败**。这种「类型不对齐」在单测里永远发现不了
+（单测的两边类型都是自己写的），只有真去跑业务链才暴露。
+
+追问会来：「那 number 分支不是多余的？反正 `String(10) === String(10)` 结果一样。」
+—— 诚实答：对，**两边都是数字时两支结果一致**，它只是把「数字比数字」的意图写明确；
+真正的坑只在**跨类型**（`1` vs `"1"`、`true` vs `"true"`），那才是 `looseEq` 存在的理由。
+（顺带：响应头断言的 `eq`（M14）同样走 `String(actual) === String(value)`，不是严格 `===`。）
 
 ### 3. 模板替换 —— `renderTemplate()`
 > 对照 `src/vars.js`：`renderTemplate()`
@@ -65,7 +78,7 @@
 - 环境头 **vs** 用例里手写的同名头 → 谁优先？为什么？
 
 ### 5. 用例链为什么必须顺序跑 —— `runAll()`
-> 对照 `src/runner.js`：`runAll()`（约 223 行起）
+> 对照 `src/runner.js`：`runAll()`（`grep -n "export async function runAll" src/runner.js` 定位）
 
 任务：写出批量执行循环，并讲清「**为什么这里绝不能改成 `Promise.all`**」。
 再答一个问题：变量袋的**生命周期** —— 一次 run-all 一个袋子？跨运行复用行不行？
