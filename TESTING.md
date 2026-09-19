@@ -25,8 +25,9 @@ npm test
 ```
 
 - 框架：vitest（`vitest run`，单次非监听）
-- 覆盖：`tests/app.test.js`（19 例）、`tests/jsonpath.test.js`（9 例）、`tests/auth.test.js`（13 例）
-- 预期：`Test Files 3 passed`、`Tests 41 passed`
+- 覆盖：**17 个测试文件 / 211 例**（`tests/*.test.js`，按能力见 §1.3）
+- 预期：`Test Files 17 passed`、`Tests 211 passed`
+- 另有真浏览器用例：Playwright **11 条**（`npm run test:e2e`，需先 `npm --prefix web run build`）—— 它不在 `npm test` 里，见 §2.5
 
 ### 1.2 测试隔离机制（重要）
 
@@ -40,33 +41,45 @@ npm test
 
 ### 1.3 测试覆盖点
 
-| 模块 | 验证内容 |
+> 每个文件一条，**文件名为准**（逐文件条数刻意不在这里维护 —— 那是最容易过期的东西）。
+
+| 测试文件 | 验证内容 |
 |------|----------|
-| runner 引擎 | 状态码断言、响应体包含、网络不可达错误、runAll 顺序执行 |
-| JSONPath 断言（M3） | `eq/ne/gt/gte/lt/lte/contains/exists`、数组下标、通配 `[*]`、嵌套路径、非 JSON 响应 |
-| 用例 CRUD | 新建→查询→更新→删除闭环、部分更新保持原值、缺字段报错、404 |
-| HTTP 层 | `/health`、`/api/cases` 增删查改、`/api/run-all` 汇总、缺 url 返回 400 |
-| 定时任务（M3） | schedules 增删改查、非法 cron 返回 400、报告汇总、scheduler 注册/停用/校验 |
-| 鉴权（M4） | 注册（成功/密码过短/重名）、登录（正确/错误密码）、无 token 访问受保护路由 401、带 token 200、`/api/auth/me`、`/health` 免鉴权 |
-| 改密（M5） | 修改密码（无 token 401 / 原密码错误 400 / 成功后旧密码失效且新密码可用） |
-| 守卫边界（M5） | 非 `/api` 路径（前端页面/静态资源）免鉴权——回归测试：曾误拦导致部署后登录页自身 401 |
+| `app.test.js` | runner 引擎与 HTTP 层：状态码断言、响应体包含、网络不可达错误、runAll 顺序执行、`/api/cases` 增删查改、缺 url 返回 400 |
+| `jsonpath.test.js` | `eq/ne/gt/gte/lt/lte/contains/exists`、数组下标 `$[1]`、通配 `[*]`、嵌套路径、`.length`、非 JSON 响应 |
+| `auth.test.js` | 注册（成功/密码过短/重名）、登录（正确/错误密码）、无 token 访问受保护路由 401、带 token 200、`/api/auth/me`、`/health` 免鉴权、改密（旧密码失效）、**非 `/api` 路径免鉴权**（回归：曾误拦导致登录页自身 401） |
+| `vars.test.js` | 用例链的模板渲染与 `extract` 抽值、缺变量时的提示 |
+| `multipart.test.js` | 请求体类型 json / raw / form-data；手搓 multipart 的 boundary 与二进制安全；执行器接管 `Content-Type` 与 `Content-Length` |
+| `environments.test.js` | 环境变量集 CRUD、**同一时刻只有一个当前环境**、环境变量是基线（链上 extract 优先）、环境头是默认值（用例手写头优先） |
+| `runEnv.test.js` | 执行记录存环境的**快照**（名字 + 地址）、按运行环境汇总、升级前老记录归到「(未记录环境)」不编造 |
+| `suite.test.js` | 套件导出导入：不带本地 id、导出顺序 = 串链顺序、**脱敏判据「键名敏感 且 值是字面量」**、rename/overwrite/skip 冲突策略、坏条目进 `failed[]` 不整份打回 |
+| `group.test.js` | `group` 业务标签、列表按组筛选、按组运行、报告按组汇总 |
+| `deleteCascade.test.js` | 删用例连带清 `runs` + `schedules`（同事务）、**停掉内存里的 cron**、用例不存在时整笔回滚 |
+| `headerAssert.test.js` | 响应头断言（`op` 复用 eq/contains/exists）、头名大小写不敏感、头不存在时判失败、**BOM 必须绕开 `res.text()`**（`fetch` 会静默吃掉） |
+| `runnerQuery.test.js` | 链上的 query 参数真的发出去 —— 回归：`test_cases` 曾漏存 query 列 → 用例**入库即丢**、服务器按默认范围回 200、**断言假绿** |
+| `schedules.test.js` | 分组定时任务：哨兵 `case_id = 0`、group 优先于单条、空组拒绝、缺参 400、删用例不孤立分组任务、触发层跑整组并落记录 |
+| `notifications.test.js` | 三档落通知（success/warn/error）、`notifyOn=failure` 成功静默、500 条保留上限自动裁剪、SSE 广播 / 退订 / 订阅者抛错容错 |
+| `webhook.test.js` | 出口地址只放行 http/https、`forwardToWebhook` **永不抛错**、只转 warn/error |
+| `seed.test.js` | 自测组种子：**不许出现 `$.1` 方言**、断言维度覆盖齐全、幂等、历史遗留名字（`示例-*` / `健康检查-*`）能被清干净 |
+| `aiCases.test.js` | AI 生成用例的 prompt 构造与模型校验，**全程 mock `fetch`**（不花钱、不依赖外网、结果可重复） |
 
 ---
 
-## 1.4 一键填充示例用例（推荐，先看效果）
+### 1.4 一键填充用例（推荐，先看效果）
 
-不想自己录用例？`npm run seed` 会写入 5 条示例用例 + 1 条演示定时任务（幂等，可反复跑），覆盖平台所有断言维度：
+`npm run seed` 写入 **「自测」分组 13 条用例 + 1 条演示定时任务**（幂等，可反复跑：先按分组清旧、再插，不留孤儿 run）：
 
-| 示例用例 | 目标 | 断言 |
-|---------|------|------|
-| 示例-平台自检(/health) | `http://localhost:3001/health` | 状态码 200 + 包含 `ok` + `$.ok eq true`（**离线必绿**） |
-| 示例-GET+JSONPath(JSONPlaceholder) | `https://jsonplaceholder.typicode.com/todos/1` | 状态码 200 + `$.id eq 1` + `$.completed eq false` + `$.userId eq 1` |
-| 示例-数组断言(JSONPlaceholder/users) | `https://jsonplaceholder.typicode.com/users` | 状态码 200 + `$.length gte 5` + `$.1.name exists` |
-| 示例-POST+请求体(httpbin) | `https://httpbin.org/post` | 状态码 200 + `$.json.title contains apitest` + `$.json.done eq false` |
-| 示例-性能断言(httpbin/get) | `https://httpbin.org/get` | 状态码 200 + `maxTimeMs 5000` |
+- 覆盖 **5 类断言维度**（状态码 / 包含 / 耗时 / JSONPath / **响应头**）+ 鉴权与路由语义（401 先于路由、SPA 兜底、404 而非 405）
+- 被测对象是**平台自己**（`/health`、鉴权守卫、SPA 兜底），与 `seed:oa` 写入的 OA 业务用例**刻意分成不同分组** —— 报告页的分组汇总里一眼能区分「测平台自己」和「测 OA」
+- 只有名字带 `外网-` 的几条需要联网（JSONPlaceholder / httpbin），其余**离线必绿**
+- 演示定时任务：每天 `0 9 * * *`，**默认停用**，在「报告 / 定时」页启用即可看到定时执行
 
-> 演示定时任务：每天 `0 9 * * *` 自动跑「JSONPath 示例」用例，**默认停用**，在「报告 / 定时」页启用即可看到定时执行。
-> 第 1 条指向本平台自身，离线也必绿；后四条是真实公开接口，需联网。填好后点「全部运行」即可看到绿油油的汇总，适合截图/演示。
+> ⭐ **`seed.js` 是「自测」组的唯一真源**：完整清单看 `seed.js` 的 `demos` 数组。要改用例请改脚本再 `npm run seed`，
+> **别在界面上改**（下次 seed 会把界面上的改动覆盖掉）。本手册**刻意不抄一份用例清单** —— 抄一份就是给未来埋一处过期。
+
+> ⚠️ **JSONPath 方言（最容易踩的一个坑）**：本平台**只认方括号下标 `$[1]`，不认点号下标 `$.1`**。
+> 写错不会报错 —— 求值**静默返回 0 匹配**，于是断言既不会红、也永远证明不了什么。
+> 这条已经固化在两处：一条用例的名字（`外网-数组长度 + 数组下标（正确方言 $[1]）`）+ `tests/seed.test.js` 里「不许出现 `$.1` 方言」的断言。
 
 ## 2. 平台使用自测（端到端，验证真实功能）
 
@@ -134,6 +147,23 @@ curl http://localhost:3001/api/reports/summary -H "Authorization: Bearer $TOKEN"
 # 3) 不带 token 应 401
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/api/cases
 ```
+
+### 2.5 真浏览器用例（Playwright，11 条）
+
+接口层测试**看不见界面**，所以另有一层真浏览器用例：
+
+```bash
+npm --prefix web run build   # E2E 打的是构建产物 web/dist，必须先构建
+npm run test:e2e             # 11 条；自动起服务、用独立库 data/e2e.db
+```
+
+- 用 `channel: 'chrome'` **复用系统已装的 Chrome、不下载浏览器**（省掉几百 MB）
+- 独立库 `data/e2e.db` + 确定性种子（含 2 条**离线**必绿/必红用例，断言不依赖外网）
+- 覆盖：鉴权路由守卫 / 真实表单登录 / 单条必绿·必红 / 分组筛选与按组运行 / 报告分组维度 / 新建与删除
+- 本机若遇到「跑完不退出」的 flaky：`scripts/run-e2e.mjs` 自管服务生命周期（起 → 等 `/health` → 跑 → 杀）+ `e2e/force-exit-reporter.mjs` 看门狗
+
+> ⭐ 这一层上线**首日就抓出自己项目的一个真 bug**：SSE 长连接让无头 Chrome 收尾挂住。
+> **接口全绿 ≠ 界面没问题** —— 层次决定你能看见什么层次的缺陷。
 
 ---
 

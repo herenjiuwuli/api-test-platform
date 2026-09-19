@@ -13,7 +13,7 @@
 - 断言模型 `expected`：`status`（状态码）/ `contains`（响应体包含）/ `maxTimeMs`（耗时上限）/ `jsonChecks`（JSONPath 字段值断言）。
 - `jsonChecks` 支持 8 个 op：`eq / ne / gt / gte / lt / lte / contains / exists`。
 - JSONPath 求值器**完全自写、零第三方库**，支持 `$.a.b`、`$.arr[0]`、`$.arr[*]`、`.length`。
-- **为什么自己写而不用 `jsonpath` 库？** 项目定位就是「手写轮子展示能力」；且第三方库对 `$.arr[*]`、`.length` 这类写法支持参差，自写约 60 行更可控、更易测（有 70 个单测兜底）。
+- **为什么自己写而不用 `jsonpath` 库？** 项目定位就是「手写轮子展示能力」；且第三方库对 `$.arr[*]`、`.length` 这类写法支持参差，自写约 60 行更可控、更易测（有 211 个单测兜底）。
 
 ### 2. 零依赖鉴权（scrypt 哈希 + 手写 HS256 JWT）✅
 - 密码：`crypto.scrypt` 加盐哈希 + `timingSafeEqual` 防时序攻击（盐与密文同存）。
