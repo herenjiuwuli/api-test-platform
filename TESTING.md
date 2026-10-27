@@ -1,6 +1,6 @@
 # API 自动化测试平台 · 测试手册
 
-> 适用版本：M5（Fastify 5 + Node 22 内置 `node:sqlite` + 手写鉴权 + 单端口部署 + Vue3 前端）
+> 适用版本：M23（Fastify 5 + Node 22 内置 `node:sqlite` + 手写鉴权 + 单端口部署 + Vue3 前端 + AI 生成用例与质量评测）
 > 本文覆盖两类测试：**① 自动化测试套件**（开发者/CI 用）与 **② 平台使用自测**（用平台本身验证功能）。
 
 ---
@@ -25,8 +25,8 @@ npm test
 ```
 
 - 框架：vitest（`vitest run`，单次非监听）
-- 覆盖：**17 个测试文件 / 211 例**（`tests/*.test.js`，按能力见 §1.3）
-- 预期：`Test Files 17 passed`、`Tests 211 passed`
+- 覆盖：**19 个测试文件 / 233 例**（`tests/*.test.js`，按能力见 §1.3）
+- 预期：`Test Files 19 passed`、`Tests 233 passed`
 - 另有真浏览器用例：Playwright **11 条**（`npm run test:e2e`，需先 `npm --prefix web run build`）—— 它不在 `npm test` 里，见 §2.5
 
 ### 1.2 测试隔离机制（重要）
@@ -62,6 +62,8 @@ npm test
 | `webhook.test.js` | 出口地址只放行 http/https、`forwardToWebhook` **永不抛错**、只转 warn/error |
 | `seed.test.js` | 自测组种子：**不许出现 `$.1` 方言**、断言维度覆盖齐全、幂等、历史遗留名字（`示例-*` / `健康检查-*`）能被清干净 |
 | `aiCases.test.js` | AI 生成用例的 prompt 构造与模型校验，**全程 mock `fetch`**（不花钱、不依赖外网、结果可重复） |
+| `ai.test.js` | AI 生成用例的**落库链路**（M23）：生成结果能按用例结构校验、非法结构被拒、保存时 `source=ai` |
+| `caseSource.test.js` | 用例来源标记（M23）：`'ai'` / `'AI'` / `' Ai '` 归 ai，`auto` / 空 / 数字归 manual；**`updateCase` 不改 source**（来源是事实，不是可编辑字段）；报告 `bySource` 两种来源都补 0 行（AI 用例没跑过也要进分母） |
 
 ---
 
@@ -86,12 +88,12 @@ npm test
 ### 2.1 启动
 
 ```bash
-npm run dev        # 后端 :3001 + 前端 :5173 同时起（concurrently）
-# 或仅后端： npm start        （端口 3001，会顺带恢复启用的定时任务）
+npm run dev        # 后端 :3003 + 前端 :5173 同时起（concurrently）
+# 或仅后端： npm start        （端口 3003，会顺带恢复启用的定时任务）
 # 或仅前端： npm --prefix web run dev
 ```
 
-打开前端 `http://localhost:5173`，后端 API 在 `http://localhost:3001`。
+打开前端 `http://localhost:5173`，后端 API 在 `http://localhost:3003`。
 
 > **M4 鉴权**：打开前端会先跳到登录页。**默认管理员 `admin / admin123`**（首次启动自动创建，库里已有用户后不再创建）。也可用登录页「注册并登录」新建账号。未带 `Authorization: Bearer <token>` 调 `/api/*` 会返回 401。
 > 生产部署务必设 `JWT_SECRET`（默认 `dev-secret-change-me`），否则 token 可被伪造。
@@ -104,7 +106,7 @@ npm run dev        # 后端 :3001 + 前端 :5173 同时起（concurrently）
 |------|-----|
 | name | 自检-health |
 | method | GET |
-| url | `http://localhost:3001/health` |
+| url | `http://localhost:3003/health` |
 | 断言-状态码 | 200 |
 | 断言-包含 | `ok` |
 | JSONPath 断言 | `$.ok` `eq` `true` |
@@ -124,28 +126,28 @@ npm run dev        # 后端 :3001 + 前端 :5173 同时起（concurrently）
 - [ ] **运行时长**：报告里能看到每次运行的 `durationMs`。
 - [ ] **登录鉴权（M4）**：未登录访问前端跳 `/login`；用 `admin/admin123` 登录后进入列表；点右上角「退出」再访问受保护页会回登录页。直接 `curl` 不带 token 调 `/api/cases` 返回 401，带 token 返回 200。
 - [ ] **修改密码（M5）**：右上角用户名下拉「修改密码」→ 填原密码 + 新密码（≥6 位，两次一致）→ 确定后自动退出回登录页；用新密码可登录、旧密码登录失败。
-- [ ] **单端口部署（M5）**：`npm --prefix web run build` 后 `npm start`，浏览器直接访问 `http://localhost:3001` 即可打开整个前端（无需开 :5173），刷新 `/reports` 等前端路由不 404。
+- [ ] **单端口部署（M5）**：`npm --prefix web run build` 后 `npm start`，浏览器直接访问 `http://localhost:3003` 即可打开整个前端（无需开 :5173），刷新 `/reports` 等前端路由不 404。
 
 ### 2.4 命令行快速验证（无需开前端）
 
 ```bash
-# 后端已在 :3001 运行时
+# 后端已在 :3003 运行时
 # 1) 先登录拿 token
-TOKEN=$(curl -s -X POST http://localhost:3001/api/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:3003/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"admin123"}' | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).token))")
 
 # 2) 带 token 调受保护接口
-curl -X POST http://localhost:3001/api/cases \
+curl -X POST http://localhost:3003/api/cases \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"name":"自检-health","method":"GET","url":"http://localhost:3001/health","expected":{"status":200,"contains":"ok","jsonChecks":[{"path":"$.ok","op":"eq","value":true}]}}'
+  -d '{"name":"自检-health","method":"GET","url":"http://localhost:3003/health","expected":{"status":200,"contains":"ok","jsonChecks":[{"path":"$.ok","op":"eq","value":true}]}}'
 
-curl -X POST http://localhost:3001/api/run-all -H "Authorization: Bearer $TOKEN"   # 全部运行汇总
-curl http://localhost:3001/api/reports/summary -H "Authorization: Bearer $TOKEN"   # 报告汇总
+curl -X POST http://localhost:3003/api/run-all -H "Authorization: Bearer $TOKEN"   # 全部运行汇总
+curl http://localhost:3003/api/reports/summary -H "Authorization: Bearer $TOKEN"   # 报告汇总
 
 # 3) 不带 token 应 401
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/api/cases
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3003/api/cases
 ```
 
 ### 2.5 真浏览器用例（Playwright，11 条）
