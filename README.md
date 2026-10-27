@@ -15,6 +15,10 @@
   - 密码哈希：Node 内置 `crypto.scrypt`（加盐 + `timingSafeEqual` 防时序攻击）
   - Token：手写 **HS256 JWT**（`header.payload.signature` base64url 编码），不引 `jsonwebtoken`
   - 全局 `onRequest` 守卫：除 `/health`、`/api/auth/login`、`/api/auth/register` 外，所有 `/api` 路由必须带 `Authorization: Bearer <token>`，否则 401
+  - ⭐ **Cookie 兜底**（2026-10-27 加）：登录时同时下发 `HttpOnly` Cookie（`ptk`），守卫按「Bearer 头 → Cookie」顺序取，先验过算谁。
+    理由不是「多一种玩法」，是**真被网关坑过**：把服务放到会改写 `Authorization` 的反代后面时，前端带的头被覆盖，
+    所有接口 401，而页面本身好好的——从外面看只像「登录没生效」。Cookie 网关不动，同源请求浏览器自动带，前端一行都不用改。
+    诊断方法：`?token=` 能过（SSE 端点）但头过不了 → 就是头被动了。
   - 首次启动（`initDefaultUser`）若库里无用户则自动种入默认管理员 `admin / admin123`
   - 前端：登录页 + 路由守卫（未登录跳 `/login`）+ axios 拦截器自动带 token / 401 清退 + 退出按钮
   - 修改密码（M5）：`POST /api/auth/change-password`（需登录），校验原密码后更新哈希；前端右上角用户菜单内弹窗，改完自动重新登录
@@ -61,7 +65,7 @@ cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3
 
 ```bash
 npm run seed       # 写入 13 条「自测」用例（覆盖全断言维度，含 4 条打外网）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 233 例全绿（全离线）
+npm test           # vitest 239 例全绿（全离线）
 npm run check:frontend    # 静态扫描：前端未声明标识符 / 模板漏声明 / ref 忘了 .value
 npm run check:docs        # 静态扫描：README / docs / CI 里引用的文件必须真的存在
 cd web && npm run build   # 前端产物 web/dist（E2E 打的是这份产物，必须先构建）
@@ -435,10 +439,10 @@ ERR_INVALID_ARG_TYPE: Provided value cannot be bound to SQLite parameter 1
 | **M20** | **通知降噪 + 保留策略**：任务级 `notifyOn: all \| failure`（默认 all 不改 M17 行为；failure 模式全绿静默、warn/error 照落——「成功静默、失败才喊人」的监控惯例；白名单外回退 all）；`addNotification` 落库自动裁剪只留最近 500 条（不做成接口——「清理日志」和「改写历史」只隔一层窗户纸；单条 SQL 幂等裁剪）。前端定时表单「只在失败时通知」开关 + 任务表「通知」列 | ✅ 已完成（186 例接口 + 11 条 E2E + OA 60 条） |
 | **M21** | **通知出口（webhook 外呼）**：`GET/PUT /api/notifications/webhook` 配置出口地址（settings KV，http/https 校验），失败侧（warn/error）通知落库后 JSON POST 出去（可指向飞书机器人 / hermes / 任意收 JSON 端点）；`forwardToWebhook` **永不抛错**（3s 超时，错误全转返回值）——出口挂了不影响调度本体、站内记录一条不丢。⭐ 顺带根治本机 E2E「跑完不退出」：force-exit reporter（onTestEnd 强退）+ 输出看门狗（60s 无输出判挂死）+ 自动重试，5 连跑全 EXIT=0（含一次真实自愈） | ✅ 已完成（206 例接口 + 11 条 E2E + OA 60 条） |
 | **M22** | **数据自洽：把「自测」用例组收成一个真源**。① 散落的历史示例用例（无分组、其中 5 条是红的、还有一条名字是乱码）收敛为分组 `自测`，由 `seed.js` **单一真源幂等维护**（13 条，覆盖状态码/包含/耗时/JSONPath/响应头 5 类断言 + 鉴权与路由语义），报告页一眼区分「测平台自己」与「测 OA」；② 修掉 `seed.js` **自己写错的 JSONPath 方言**——`$.1.name`（本平台只认 `$[1]`）求值静默返回 0 匹配，导致**每跑一次 seed 就往库里埋一条必红用例**，「全部运行」长期停在 68/74；③ 新增 `tests/seed.test.js` 9 例：不许出现 `$.1` 方言、不许出现期望 405、断言维度覆盖齐全、外网依赖名字必须带前缀、**幂等性**、以及「历史遗留名字（`示例-*` / `健康检查-*`）能被清干净」；④ 截图导览脚本的演示对象从「库里捡一条红的」改成**自建自删的临时用例**，不再依赖偶然数据；收尾删除写进 **`finally` + 看门狗**（不再只写在正常路径末尾），并给 CDP 的每次调用补上超时 —— 起因是它曾在一次 `eval` 上**挂死 3 小时 31 分**，把一条「每分钟触发」的定时任务留在库里无人看管地跑。⭐ 一句话：**种子数据也是代码，也会写出错的断言，也该有测试。** | ✅ 已完成（206 例接口 + 11 条 E2E + OA 60 条） |
-| **M23** | **AI 生成的用例到底靠不靠谱：用数字回答**。① `test_cases` 加 `source`（`manual` / `ai`，默认 manual，归一化只认 `'ai'`，`auto` / 空 / 数字一律归 manual——**近似词不算，宁可少记一条也不让脏值搅乱口径**）；② `getReportSummary().bySource` 按来源算通过率，两个来源都补 0 行（**AI 用例没跑过也要进分母**，否则「生成 20 条只跑 3 条」= 100% 的假象）；③ `scripts/eval-ai-cases.mjs` 生成 → 落库 → 真跑 → 出通过率，`scripts/review-ai-cases.mjs` 读人工标注算**幻觉率双口径**：24 条实测 14 通过，**17%（4/24 占全部）/ 40%（4/10 占失败）**；四类幻觉形态（编 token / 编 `{code,data}` 包装 / 把中文提示写成 `Unauthorized` / 以为 `/` 是 `/health` 根）；④ ⭐ 靠 AI 用例抓出**真缺陷**——`POST /api/auth/login` 缺参或空 body 返回 500（`undefined` 绑进 SQLite 抛 `ERR_INVALID_ARG_TYPE`），8 条登录组用例命中 2 条，已修 + 补 2 条回归；⑤ 用例集**指纹**（sha256 前 16 位）绑定评测结果，替代易变的时间戳。⭐ 一句话：**AI 写的用例价值不在「都对」，而在「敢去碰人懒得手写的地方」。** | ✅ 已完成（233 例接口 + 11 条 E2E + OA 84 条） |
+| **M23** | **AI 生成的用例到底靠不靠谱：用数字回答**。① `test_cases` 加 `source`（`manual` / `ai`，默认 manual，归一化只认 `'ai'`，`auto` / 空 / 数字一律归 manual——**近似词不算，宁可少记一条也不让脏值搅乱口径**）；② `getReportSummary().bySource` 按来源算通过率，两个来源都补 0 行（**AI 用例没跑过也要进分母**，否则「生成 20 条只跑 3 条」= 100% 的假象）；③ `scripts/eval-ai-cases.mjs` 生成 → 落库 → 真跑 → 出通过率，`scripts/review-ai-cases.mjs` 读人工标注算**幻觉率双口径**：24 条实测 14 通过，**17%（4/24 占全部）/ 40%（4/10 占失败）**；四类幻觉形态（编 token / 编 `{code,data}` 包装 / 把中文提示写成 `Unauthorized` / 以为 `/` 是 `/health` 根）；④ ⭐ 靠 AI 用例抓出**真缺陷**——`POST /api/auth/login` 缺参或空 body 返回 500（`undefined` 绑进 SQLite 抛 `ERR_INVALID_ARG_TYPE`），8 条登录组用例命中 2 条，已修 + 补 2 条回归；⑤ 用例集**指纹**（sha256 前 16 位）绑定评测结果，替代易变的时间戳。⭐ 一句话：**AI 写的用例价值不在「都对」，而在「敢去碰人懒得手写的地方」。** | ✅ 已完成（239 例接口 + 11 条 E2E + OA 84 条） |
 
 ⭐ 注：表里的「N 例 / OA N 条」是**该里程碑完成当时**的数字，不是当前值（历史不该被后一轮改写）。
-当前规模见本文开头：**233 个单测（19 个文件，行覆盖 94.7% / 分支 84.4%）+ 11 条 E2E + OA 套件 84 条**。
+当前规模见本文开头：**239 个单测（19 个文件，行覆盖 94.8% / 分支 84.6%）+ 11 条 E2E + OA 套件 84 条**。
 
 ### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
 
@@ -480,7 +484,7 @@ e2e/seed-e2e.mjs     E2E 确定性种子：复用真实 seed.js + 补 2 条离�
 e2e/helpers.js       E2E 公共层：真实表单登录 / hash 路由判据 / 等数据到位 / ★ about:blank 收尾 fixture（拆掉 SSE 长连接防挂死）
 scripts/run-e2e.mjs  E2E 包装器：自管服务生命周期（起 → 等 /health → 跑 Playwright → 杀）——绕开 Windows 上 Playwright 收尾杀不掉 webServer 的坑
 .github/workflows/ci.yml  CI：静态扫描（前端 + 文档引用）→ 构建 → vitest → E2E → 真机断言（m11+m12，45 条）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/ai.test.js + tests/caseSource.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/runnerQuery.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js + tests/seed.test.js  共 19 个文件 / 233 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/ai.test.js + tests/caseSource.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/runnerQuery.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js + tests/seed.test.js  共 19 个文件 / 239 例，全离线
 e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + e2e/force-exit-reporter.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；force-exit reporter + 看门狗重试绕开本机 flaky 收尾；CI 走 .github/workflows/ci.yml）
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）

@@ -190,3 +190,70 @@ describe('鉴权（M4）', () => {
     expect(newOk.statusCode).toBe(200)
   })
 })
+
+// Cookie 兜底：部署到「会改写 Authorization 的网关」后面时，头里的 token 永远验不过。
+// 这组用例把「头坏了但 Cookie 好」「两头都坏」「两头都没有」三种情况钉住，
+// 将来谁改 authGuard 的取值顺序，这里会立刻红。
+describe('鉴权：Cookie 兜底', () => {
+  let token = ''
+  let cookie = ''
+
+  it('登录同时下发 HttpOnly Cookie', async () => {
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'cookieuser', password: 'cookietest1' },
+    })
+    expect(reg.statusCode).toBe(201)
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'cookieuser', password: 'cookietest1' },
+    })
+    expect(login.statusCode).toBe(200)
+    token = JSON.parse(login.body).token
+    const setCookie = String(login.headers['set-cookie'])
+    expect(setCookie).toContain('ptk=')
+    expect(setCookie.toLowerCase()).toContain('httponly')
+    cookie = setCookie.split(';')[0]
+  })
+
+  it('只带 Cookie 也能访问受保护接口', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).user.username).toBe('cookieuser')
+  })
+
+  it('Authorization 被网关改写时，Cookie 兜底仍然通过', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { authorization: 'Bearer 网关塞进来的垃圾token', cookie },
+    })
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('没有 Cookie 时 Bearer 头照旧可用', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { authorization: 'Bearer ' + token },
+    })
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('头和 Cookie 都无效才 401', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { authorization: 'Bearer a.b.c', cookie: 'ptk=a.b.c' },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('什么都不带报「未登录」，而不是「签名无效」', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/auth/me' })
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body).error).toContain('未登录')
+  })
+})

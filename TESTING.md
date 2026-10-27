@@ -25,8 +25,8 @@ npm test
 ```
 
 - 框架：vitest（`vitest run`，单次非监听）
-- 覆盖：**19 个测试文件 / 233 例**（`tests/*.test.js`，按能力见 §1.3）
-- 预期：`Test Files 19 passed`、`Tests 233 passed`
+- 覆盖：**19 个测试文件 / 239 例**（`tests/*.test.js`，按能力见 §1.3）
+- 预期：`Test Files 19 passed`、`Tests 239 passed`
 - 另有真浏览器用例：Playwright **11 条**（`npm run test:e2e`，需先 `npm --prefix web run build`）—— 它不在 `npm test` 里，见 §2.5
 
 ### 1.2 测试隔离机制（重要）

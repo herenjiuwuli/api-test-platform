@@ -65,6 +65,21 @@ import { generateCases } from './src/aiCases.js'
 // 鉴权守卫：除健康检查、登录/注册外，所有 /api 路由必须带有效 Bearer token。
 // 注意：静态资源与前端的 SPA 页面（/、/reports、/cases/... 等非 /api 路径）一律公开，
 // 否则部署后登录页自身都打不开（会吃 401）。测试旁路：API_AUTH_DISABLED==='1' 全放行。
+// 登录态也可以放 Cookie。存在的理由很具体：把服务放到「会改写 Authorization 的网关」
+// 后面时（实测某类反代自己塞一个 Bearer 进去，把前端带的头覆盖掉），头里的 token
+// 永远验不过 —— 而 Cookie 网关不动，且同源请求浏览器会自动带上，前端一行都不用改。
+const AUTH_COOKIE = 'ptk'
+
+function readCookie(header, name) {
+  if (!header) return ''
+  for (const part of String(header).split(';')) {
+    const i = part.indexOf('=')
+    if (i < 0) continue
+    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim())
+  }
+  return ''
+}
+
 async function authGuard(req, reply) {
   if (process.env.API_AUTH_DISABLED === '1') return
   if (!req.url.startsWith('/api')) return // 静态资源 / 前端页面公开
@@ -82,13 +97,24 @@ async function authGuard(req, reply) {
       return reply.code(401).send({ error: 'token 无效或已过期：' + e.message })
     }
   }
+  // 依次尝试：Authorization 头 → Cookie。谁先验过算谁，都不行才 401。
+  // （SSE 的 ?token= 上面单独处理，因为 EventSource 带不了头也带不上跨域 Cookie。）
+  const candidates = []
   const m = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
-  if (!m) return reply.code(401).send({ error: '未登录或缺少 token' })
-  try {
-    req.user = verifyToken(m[1])
-  } catch (e) {
-    return reply.code(401).send({ error: 'token 无效或已过期：' + e.message })
+  if (m) candidates.push(m[1].trim())
+  const ck = readCookie(req.headers.cookie, AUTH_COOKIE)
+  if (ck) candidates.push(ck)
+  if (!candidates.length) return reply.code(401).send({ error: '未登录或缺少 token' })
+  let lastErr = null
+  for (const t of candidates) {
+    try {
+      req.user = verifyToken(t)
+      return
+    } catch (e) {
+      lastErr = e
+    }
   }
+  return reply.code(401).send({ error: 'token 无效或已过期：' + lastErr.message })
 }
 
 export function buildApp() {
@@ -124,6 +150,9 @@ export function buildApp() {
     const u = verifyLogin(username, password)
     if (!u) return reply.code(401).send({ error: '用户名或密码错误' })
     const token = signToken({ sub: u.id, username: u.username, role: u.role })
+    // 同步下发 HttpOnly Cookie：前端拿 localStorage 里的 token 走 Bearer，
+    // Cookie 只是「网关把 Authorization 搞坏时」的兜底（见 authGuard 上方注释）。
+    reply.header('Set-Cookie', `${AUTH_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24}`)
     return { token, user: { id: u.id, username: u.username, role: u.role } }
   })
 
