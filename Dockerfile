@@ -17,12 +17,12 @@ RUN npm --prefix web install && npm --prefix web run build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=3003
 # 复制构建产物（含 web/dist）
 COPY --from=build /app /app
 # 仅保留后端生产依赖（去掉 concurrently / vitest 等 devDeps）
 RUN npm prune --omit=dev
-EXPOSE 3001
+EXPOSE 3003
 # 数据库持久化目录（部署时务必挂卷，否则重启数据丢失）
 VOLUME ["/app/data"]
 CMD ["node", "index.js"]

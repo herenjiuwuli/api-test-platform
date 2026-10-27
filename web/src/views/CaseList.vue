@@ -43,6 +43,12 @@
           <span v-else class="detail-inline">—</span>
         </template>
       </el-table-column>
+      <el-table-column label="来源" width="100">
+        <template #default="{ row }">
+          <el-tag v-if="row.source === 'ai'" size="small" type="warning" effect="dark">AI</el-tag>
+          <span v-else class="detail-inline">人工</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="url" label="URL" min-width="240" show-overflow-tooltip />
       <el-table-column prop="createdAt" label="创建时间" width="165" />
       <el-table-column label="操作" width="220" fixed="right">

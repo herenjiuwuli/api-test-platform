@@ -7,7 +7,7 @@
 // ⚠️ 收尾必须不留副作用：真机导入会**真的写库**（用例 + 环境），
 //    所以脚本末尾按本次唯一后缀把造出来的东西全删掉。
 //
-// 跑法：node scripts/m11-suite-ui-check.mjs   （需要平台在 3001 跑着）
+// 跑法：node scripts/m11-suite-ui-check.mjs   （需要平台在 3003 跑着）
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

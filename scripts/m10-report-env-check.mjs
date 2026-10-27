@@ -8,7 +8,7 @@
 // 顺带核对一条快照语义：run 记录里的地址是**执行当时**的地址，不该被后来的编辑改写。
 //
 // 用法：先 `npm run seed:oa && npm run test:oa`，再 `node scripts/m10-report-env-check.mjs`
-// 前提：平台已在 3001 上跑（web/dist 是最新构建）。
+// 前提：平台已在 3003 上跑（web/dist 是最新构建）。
 // 凭据：现场注册临时账号（密码运行时随机），不读也不写死任何既有凭据。
 
 import { checks, loginByToken, oaBase, PAGE_HELPERS, platformBase, tempPlatformToken, withBrowser } from './lib/cdp.mjs'

@@ -1,0 +1,65 @@
+{
+  "_说明": "人工逐条判定 AI 生成用例的失败原因。脚本只负责跑出通过率；『这条失败是模型的错还是系统的错』必须人来看，否则幻觉率就是编的。",
+  "_rule": {
+    "hallucination": "模型自己编的：假 token、编造响应结构、编造错误文案、把不存在的路径当接口",
+    "framework": "框架/实现语义差异：405 期望 vs 404 实际、鉴权先于方法判断（401 而非 405）—— 都说得通，不构成缺陷",
+    "design": "设计权衡的必然结果：如 SPA 回退让 /health/xxx 返回前端页面 200",
+    "over-strict": "断言选窄了：实际行为可接受，只是不是模型期望的那个值",
+    "real-bug": "被测系统的真缺陷（这一类才是 AI 用例的价值所在）"
+  },
+  "runAt": "2026-10-27T15:49:58.292Z",
+  "reviewer": "人工逐条判定（周怡晨 + AI 辅助核对实际响应）",
+  "verdicts": {
+    "login|超长用户名输入返回400而非500": {
+      "verdict": "over-strict",
+      "note": "实际 401（用户查不到）。模型的核心意图是『别 500』，达到了；只是把期望值选窄成 400。平台没有用户名长度上限，超长输入会走查库→查不到→401，不泄露用户存在性，可接受。"
+    },
+    "login|使用GET方法访问登录接口返回405": {
+      "verdict": "framework",
+      "note": "Fastify 对未注册的 method+path 组合返回 404，不是 405。REST 语义上 405 更准确，但 404 同样常见，且不暴露『这个路径存在、只是方法不对』。"
+    },
+    "health|使用错误方法 POST 访问应返回 405 或 404": {
+      "verdict": "framework",
+      "note": "同 login：框架返回 404。用例名自己写了「405 或 404」，但 expected 只写了 405 —— 名字比断言宽容，说明模型自己也没想清楚。"
+    },
+    "health|访问不存在的子路径应返回 404": {
+      "verdict": "design",
+      "note": "SPA 回退接管：非 /api 路径一律交给前端 index.html，所以 /health/unknown 返回 200。语义上确实该 404，但这是『单端口托管前端』的必然结果。⚠️ 以后若要暴露 /health/metrics 之类的子路径，会踩到这一条。"
+    },
+    "health|根路径访问不应返回健康检查成功体": {
+      "verdict": "hallucination",
+      "note": "模型以为 / 是 health 的『根』。实际 / 是前端首页（SPA 回退）。对系统结构想当然 —— 这是最典型的幻觉形态：接口之间没有父子关系，模型自己脑补了一个。"
+    },
+    "cases|正常查询全部用例列表（有效 token）": {
+      "verdict": "hallucination",
+      "note": "双重幻觉：① 凭空编了一个 Bearer token（评测没给它真 token）② 还给响应编了 {code, data} 这种包装结构，而平台返回的是裸数组。编 token 属于缺上下文，编结构属于彻底没依据。"
+    },
+    "cases|缺少 Authorization 请求头时返回 401": {
+      "verdict": "hallucination",
+      "note": "状态码 401 是对的，但断言「响应体含 Unauthorized」——平台返回的是中文『未登录』。模型把英文框架的默认文案当成了事实。"
+    },
+    "cases|使用错误 HTTP 方法 POST 请求应返回 405": {
+      "verdict": "framework",
+      "note": "鉴权守卫在方法判断之前就拦了（401）。这个顺序是对的：未授权的调用方不该知道『这个方法存不存在』。"
+    },
+    "cases|携带非法查询参数 page 的边界处理": {
+      "verdict": "framework",
+      "note": "同上，被鉴权先拦（401），根本走不到参数校验。"
+    },
+    "cases|查询列表响应时间不超过 2 秒": {
+      "verdict": "hallucination",
+      "note": "连带失败：假 token 导致 401，且它同时期望 status 200。另外「响应时间不超过 2 秒」这种断言在 401 上也毫无意义 —— 快是应该的，但证明了什么也没有。"
+    }
+  },
+  "_已修复的真缺陷": {
+    "login|缺失username字段返回400": {
+      "verdict": "real-bug（已修）",
+      "note": "第一轮评测时实际返回 500：ERR_INVALID_ARG_TYPE 'Provided value cannot be bound to SQLite parameter 1'。根因是登录路由没做入参校验，undefined 一路绑进 SQLite。隔壁 register 路由明明有校验。2026-10-27 已修（缺字段 → 400），补了 2 条回归测试，复测转绿。"
+    },
+    "login|空请求体返回400": {
+      "verdict": "real-bug（已修）",
+      "note": "同上，空 body 也走 500。同一个根因。"
+    }
+  },
+  "caseSetFingerprint": "1afdb73778127574"
+}

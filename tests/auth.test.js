@@ -68,6 +68,27 @@ describe('鉴权（M4）', () => {
     expect(res.statusCode).toBe(401)
   })
 
+  // 这两条是 2026-10-27 由 AI 生成的用例抓出来的真缺陷：
+  // 登录路由以前没做入参校验，undefined 一路绑进 SQLite（WHERE username = ?），
+  // 抛 ERR_INVALID_ARG_TYPE → 500。而隔壁的 register 明明有校验。
+  // 「少传一个字段」变成服务器内部错误，且日志里看不出跟入参有关。
+  it('登录：缺 username → 400（不是 500）', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { password: 'whatever' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toContain('必填')
+  })
+
+  it('登录：空 body / 缺两个字段 → 400（不是 500）', async () => {
+    for (const payload of [{}, { username: '' }, { username: 'alice' }]) {
+      const res = await app.inject({ method: 'POST', url: '/api/auth/login', payload })
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400)
+    }
+  })
+
   it('受保护路由：无 token → 401', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/cases' })
     expect(res.statusCode).toBe(401)

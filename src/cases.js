@@ -4,6 +4,7 @@
 //      / expected(status, contains, maxTimeMs, jsonChecks)
 //      / extract（M4：从本用例响应里按 JSONPath 抽变量，供链上后面的用例用）
 //      / group（M12：业务分组标签，如「审批引擎」「站内通知」，用于筛选/按组跑/报告）
+//      / source（M23：用例来源 manual / ai —— 没有它就算不出「AI 生成的用例靠不靠谱」）
 import { getDb } from './db.js'
 import { normalizeBodyType } from './bodyTypes.js'
 
@@ -13,8 +14,8 @@ export function createCase(input = {}) {
   if (!name) throw new Error('用例 name 必填')
   if (!input.url) throw new Error('用例 url 必填')
   const stmt = db.prepare(
-    `INSERT INTO test_cases (name, method, url, headers_json, body_json, body_type, files_json, query_json, expected_json, extract_json, "group")
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO test_cases (name, method, url, headers_json, body_json, body_type, files_json, query_json, expected_json, extract_json, "group", source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const info = stmt.run(
     name,
@@ -28,6 +29,7 @@ export function createCase(input = {}) {
     JSON.stringify(input.expected || {}),
     JSON.stringify(normalizeExtract(input.extract)),
     String(input.group || '').trim(),
+    normalizeSource(input.source),
   )
   return getCase(info.lastInsertRowid)
 }
@@ -162,8 +164,19 @@ function normalize(row) {
     expected: safeParse(row.expected_json, {}),
     extract: safeParse(row.extract_json, []),
     group: row.group || '',
+    // 来源：老库迁移过来的行没有这一列时按 manual（它们是真的人写的）。
+    // ⚠️ 故意的：updateCase 不允许改 source —— 「这条用例是怎么来的」是历史事实，
+    // 一旦可改，AI 用例跑失败了就能手动改成 manual，统计立刻变成自欺欺人。
+    source: row.source || 'manual',
     createdAt: row.created_at,
   }
+}
+
+// 来源只认 manual / ai：去掉首尾空格、转小写后严格等于 'ai' 才算 AI。
+// 'AI' / ' Ai ' 都算 ai（大小写不是语义）；'auto' / 'ai-generated' / 空 / 数字 一律归 manual ——
+// 近似词不算，宁可少记一条「AI 生成的」，也不能让脏值把统计口径搅乱。
+function normalizeSource(v) {
+  return String(v ?? '').trim().toLowerCase() === 'ai' ? 'ai' : 'manual'
 }
 
 // files 只留合法项：必须有 name，且**至少**给了 fixture 或 base64 之一（否则就是个发不出去的空壳）

@@ -10,11 +10,13 @@
     "seed:oa": "node seed-oa-suite.mjs",
     "test:oa": "node run-oa-suite.mjs",
     "clean:orphans": "node scripts/clean-orphan-runs.mjs",
-    "dev": "concurrently -n be,fe -c green,blue \"node index.js\" \"npm --prefix web run dev\"",
+    "dev": "node scripts/dev-clean.mjs",
+    "dev:raw": "concurrently -n be,fe -c green,blue \"node index.js\" \"npm --prefix web run dev\"",
     "dev:be": "node --watch index.js",
     "dev:fe": "npm --prefix web run dev",
     "build": "npm --prefix web run build",
     "test": "vitest run",
+    "test:cov": "vitest run --coverage",
     "check:frontend": "node scripts/check-vue-undef.mjs web/src && node scripts/check-vue-tpl.mjs web/src && node scripts/check-vue-refvalue.mjs web/src/views",
     "check:frontend:undef": "node scripts/check-vue-undef.mjs web/src",
     "check:frontend:tpl": "node scripts/check-vue-tpl.mjs web/src",
@@ -25,7 +27,9 @@
     "check:closure:auto": "node scripts/run-closure-check.mjs",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:e2e:report": "playwright show-report",
-    "verify": "npm run check:frontend && npm run check:docs && npm run build && npm test && npm run test:e2e && npm run check:ui:auto"
+    "verify": "npm run check:frontend && npm run check:docs && npm run build && npm test && npm run test:e2e && npm run check:ui:auto",
+    "eval:ai-cases": "node scripts/eval-ai-cases.mjs",
+    "review:ai-cases": "node scripts/review-ai-cases.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
@@ -34,6 +38,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@vitest/coverage-v8": "^4.1.12",
     "concurrently": "^10.0.4",
     "vitest": "^4.1.11"
   }

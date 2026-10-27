@@ -16,3 +16,6 @@ blob-report/
 # 截图导览（M13）产物：给人看的图，不进仓库
 # ⚠️ 刻意**不**放 test-results/：那边 Playwright 每次启动都会清空，图会被顺手删掉
 shots/
+
+# 覆盖率产物（本地产物，不入库）
+coverage/

@@ -4,10 +4,10 @@ services:
     image: api-test-platform:latest
     container_name: api-test-platform
     ports:
-      - "3001:3001"
+      - "3003:3003"
     environment:
       - NODE_ENV=production
-      - PORT=3001
+      - PORT=3003
       # ⚠️ 生产务必改成你自己的长随机字符串（否则 token 可被伪造）
       - JWT_SECRET=请改成你自己的长随机字符串至少32位
     volumes:

@@ -15,7 +15,7 @@
 //    以前有两条不是这样：`opts.length >= 2`（指望库里有别的分组）和 `!!runNone.body.env.name`
 //    （指望主人已经选中了某个环境）—— 换个干净库跑就假红，看着像功能坏了，其实是脚本自己没带干粮。
 //
-// 跑法：node scripts/m12-group-ui-check.mjs   （需要平台在 3001 跑着）
+// 跑法：node scripts/m12-group-ui-check.mjs   （需要平台在 3003 跑着）
 import { withBrowser, checks, PAGE_HELPERS, platformBase, sleep, tempPlatformToken, loginByToken } from './lib/cdp.mjs'
 
 // base 一律走 lib/cdp.mjs 的 platformBase()：一处认环境变量，别在各脚本里各写一种

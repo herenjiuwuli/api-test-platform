@@ -37,7 +37,7 @@
 office-oa（被测系统 SUT，:3200）
         ▲  HTTP
         │
-api-test-platform（测试平台，:3001）
+api-test-platform（测试平台，:3003）
   ├─ 用例链：登录抽 token → 建单抽 id → 审批 → 登出作废
   ├─ 断言引擎：状态码 / 响应包含 / JSONPath / 耗时上限
   └─ runs 表 + 报告页：每次结果留痕

@@ -115,6 +115,12 @@ export function buildApp() {
 
   app.post('/api/auth/login', async (req, reply) => {
     const { username, password } = req.body || {}
+    // 与上面的 register 对齐：缺字段是 400，不是 500。
+    // 以前这里没校验，undefined 会一路绑进 SQLite（getUserByUsername 的 `WHERE username = ?`），
+    // 抛 ERR_INVALID_ARG_TYPE: Provided value cannot be bound to SQLite parameter 1
+    // —— 「少传一个字段」变成服务器内部错误，日志里还看不出跟入参有关。
+    // 这个洞是 2026-10-27 由 AI 生成的用例抓出来的（8 条里 2 条命中：缺 username / 空 body）。
+    if (!username || !password) return reply.code(400).send({ error: '用户名和密码必填' })
     const u = verifyLogin(username, password)
     if (!u) return reply.code(401).send({ error: '用户名或密码错误' })
     const token = signToken({ sub: u.id, username: u.username, role: u.role })
@@ -444,7 +450,7 @@ const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process
 
 if (isDirectRun) {
   const app = buildApp()
-  const port = Number(process.env.PORT) || 3001
+  const port = Number(process.env.PORT) || 3003
   app.listen({ port, host: '0.0.0.0' }).then(() => {
     // 首次启动种入默认管理员（库里没用户时才建）
     initDefaultUser()
@@ -452,7 +458,11 @@ if (isDirectRun) {
     startScheduler()
     console.log(`✅ API 测试平台 M11 已启动：http://localhost:${port}（定时任务已恢复）`)
   }).catch((e) => {
-    console.error('启动失败：', e.message)
+    if (e && e.code === 'EADDRINUSE') {
+      console.error(`[api-test-platform] 端口 ${port} 已被占用。请先关闭占用进程，或用 \`npm run dev\` 自动清理残留。`)
+    } else {
+      console.error('启动失败：', e.message)
+    }
     process.exit(1)
   })
 }

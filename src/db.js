@@ -32,6 +32,7 @@ export function getDb() {
       headers_json TEXT NOT NULL DEFAULT '{}',
       body_json TEXT NOT NULL DEFAULT '',
       expected_json TEXT NOT NULL DEFAULT '{}',
+      source TEXT NOT NULL DEFAULT 'manual',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS runs (
@@ -130,6 +131,11 @@ function migrate(db) {
   // 于是「员工请求 scope=all 应 403」这种越权断言永远测不到（服务器根本没收到参数）。
   // 教训：执行器支持了还不算完，**持久化层漏一列就等于能力不存在**。
   addColumn(`ALTER TABLE test_cases ADD COLUMN query_json TEXT NOT NULL DEFAULT '{}'`)
+  // M23：用例来源（manual / ai）。存在的理由很实际 —— 「AI 生成的用例靠不靠谱」这句话
+  // 没有来源字段就永远说不出来：分不清哪些是模型写的，就没法算它们的通过率和误报率。
+  // 默认 manual：老库里的历史用例全部是人写的，这是事实，不是兜底。
+  // 只存 'ai' / 'manual' 两个值，取值在 cases.js 里收敛（路由层传什么都进不了第三个值）。
+  addColumn(`ALTER TABLE test_cases ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`)
 }
 
 export function closeDb() {

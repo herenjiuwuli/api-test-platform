@@ -91,6 +91,46 @@ export function getReportSummary() {
       lastRunAt: row.last_run_at,
     }))
 
+  // 按「用例来源」聚合（M23）：AI 生成的用例和人工写的用例，通过率必须分开算。
+  // 合在一起算平均值会掩盖最关键的信息 —— 「模型写的东西到底能不能用」。
+  //
+  // 两个查询合起来才是完整的：
+  //   ① 用例数从 test_cases 数（AI 生成但还没跑过的用例，也必须出现在分母里，
+  //      否则「生成了 20 条只跑了 3 条」会被算成「AI 用例通过率 100%」）；
+  //   ② 执行数从 runs 数（join 回用例拿来源）。
+  // 两个来源都补 0 行：前端不必写「if (!bySource.ai)」这种分支。
+  const caseCountBySource = new Map(
+    db
+      .prepare(`SELECT COALESCE(NULLIF(source, ''), 'manual') AS src, COUNT(*) n FROM test_cases GROUP BY src`)
+      .all()
+      .map((row) => [row.src === 'ai' ? 'ai' : 'manual', row.n]),
+  )
+  const runStatsBySource = new Map(
+    db
+      .prepare(
+        `SELECT COALESCE(NULLIF(c.source, ''), 'manual') AS src,
+                COUNT(*) runs, COALESCE(SUM(r.pass), 0) passed, MAX(r.ran_at) last_run_at
+         FROM runs r LEFT JOIN test_cases c ON c.id = r.case_id
+         GROUP BY src`,
+      )
+      .all()
+      .map((row) => [row.src === 'ai' ? 'ai' : 'manual', row]),
+  )
+  const bySource = ['manual', 'ai'].map((src) => {
+    const r = runStatsBySource.get(src) || { runs: 0, passed: 0, last_run_at: null }
+    const runs = r.runs
+    const passed = r.passed
+    return {
+      source: src,
+      cases: caseCountBySource.get(src) || 0,
+      runs,
+      passed,
+      failed: runs - passed,
+      passRate: runs ? Math.round((passed / runs) * 100) : 0,
+      lastRunAt: r.last_run_at,
+    }
+  })
+
   return {
     totalCases,
     totalRuns,
@@ -100,6 +140,7 @@ export function getReportSummary() {
     byCase,
     byEnv,
     byGroup,
+    bySource,
     recentRuns: listRuns({ limit: 10 }),
   }
 }

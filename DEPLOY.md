@@ -5,7 +5,7 @@
 正确姿势是「长驻进程 + 持久卷」：**Docker 容器 / VPS / Railway / Render** 均可。
 
 > 前端在构建后由 Fastify **同源托管**（`web/dist` 存在时自动注册 `/*` 静态路由），
-> 所以部署后**只有一个端口**（默认 3001），无需单独部署前端、也无跨域问题。
+> 所以部署后**只有一个端口**（默认 3003），无需单独部署前端、也无跨域问题。
 
 ---
 
@@ -14,7 +14,7 @@
 ```bash
 # 在仓库根目录
 docker compose up -d --build
-# 访问 http://<服务器IP>:3001
+# 访问 http://<服务器IP>:3003
 ```
 
 - 默认账号：`admin / admin123`（首次启动自动创建，登录后请在右上角「修改密码」改掉）。
@@ -26,7 +26,7 @@ docker compose up -d --build
 ```bash
 docker build -t api-test-platform .
 docker run -d --name api-test-platform \
-  -p 3001:3001 \
+  -p 3003:3003 \
   -e JWT_SECRET=你自己的长随机字符串 \
   -v $(pwd)/data:/app/data \
   --restart unless-stopped \
@@ -63,7 +63,7 @@ Nginx 反代（可选，套域名 + HTTPS）：
 
 ```nginx
 location / {
-  proxy_pass http://127.0.0.1:3001;
+  proxy_pass http://127.0.0.1:3003;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
 }
@@ -89,7 +89,7 @@ location / {
 |---|---|---|---|
 | `JWT_SECRET` | **生产必填** | `dev-secret-change-me` | JWT 签名密钥，默认值是开发占位，**生产不改会被伪造 token** |
 | `JWT_TTL_SEC` | 否 | `86400` | token 有效期（秒），默认 24h |
-| `PORT` | 否 | `3001` | 监听端口 |
+| `PORT` | 否 | `3003` | 监听端口 |
 | `DB_PATH` | 否 | `data/app.db` | SQLite 文件路径（容器里用卷挂 `/app/data`） |
 | `API_AUTH_DISABLED` | 否 | `0` | 设 `1` 关闭全局鉴权（仅测试 / 本地调试用） |
 

@@ -73,6 +73,39 @@
     </el-card>
 
     <el-card class="sec" shadow="never">
+      <template #header>
+        <span>🤖 按用例来源汇总</span>
+        <span class="head-hint">AI 生成的用例和人工写的必须分开算 —— 合在一起的平均值会掩盖「模型写的东西到底能不能用」</span>
+      </template>
+      <el-table :data="summary.bySource" border size="small" v-loading="loading">
+        <el-table-column label="来源" width="140">
+          <template #default="{ row }">
+            <el-tag v-if="row.source === 'ai'" type="warning" size="small" effect="dark">AI 生成</el-tag>
+            <el-tag v-else size="small" effect="plain">人工编写</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="cases" label="用例数" width="90" />
+        <el-table-column prop="runs" label="执行" width="70" />
+        <el-table-column label="通过/失败" width="120">
+          <template #default="{ row }">
+            <span class="pass-text">{{ row.passed }}</span> / <span class="fail-text">{{ row.failed }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="通过率" width="150">
+          <template #default="{ row }">
+            <el-progress :percentage="row.passRate" :stroke-width="10" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="lastRunAt" label="最近运行" width="160" />
+      </el-table>
+      <p class="src-note">
+        ⚠️ AI 用例通过率<strong>明显低于</strong>人工用例时，先别急着说「模型不行」——
+        逐条看失败原因：<strong>接口打错了</strong>（幻觉）／<strong>断言写错了</strong>（期望值编的）／
+        <strong>用例重复</strong>，三类的处理方式完全不同。这也是「人机 Review」真正起作用的地方。
+      </p>
+    </el-card>
+
+    <el-card class="sec" shadow="never">
       <template #header>📊 按用例汇总</template>
       <el-table :data="summary.byCase" border size="small" v-loading="loading">
         <el-table-column prop="name" label="用例" min-width="180" show-overflow-tooltip />
@@ -202,7 +235,7 @@ import { api } from '../api'
 const loading = ref(false)
 const schedLoading = ref(false)
 const schedSaving = ref(false)
-const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], byEnv: [], byGroup: [], recentRuns: [] })
+const summary = ref({ totalCases: 0, totalRuns: 0, passedRuns: 0, failedRuns: 0, passRate: 0, byCase: [], byEnv: [], byGroup: [], bySource: [], recentRuns: [] })
 const schedules = ref([])
 const cases = ref([])
 const schedForm = ref({ target: 'case', caseId: null, group: '', cron: '', notifyFailure: false })
@@ -319,6 +352,7 @@ async function onSaveWebhook() {
 .stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
 .sec { margin-bottom: 16px; }
 .head-hint { font-size: 12px; color: #909399; font-weight: 400; margin-left: 8px; }
+.src-note { margin: 10px 0 0; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
 .foot-hint { font-size: 12px; color: #909399; line-height: 1.7; margin-top: 10px; }
 .pass-text { color: #67c23a; font-weight: 600; }
 .fail-text { color: #f56c6c; font-weight: 600; }

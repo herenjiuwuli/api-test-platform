@@ -1,0 +1,489 @@
+{
+  "ranAt": "2026-10-27T15:49:58.292Z",
+  "model": "deepseek-chat",
+  "genFailed": 0,
+  "total": 24,
+  "passed": 14,
+  "failed": 10,
+  "passRate": 58,
+  "byTarget": [
+    {
+      "target": "login",
+      "total": 8,
+      "passed": 6,
+      "passRate": 75
+    },
+    {
+      "target": "health",
+      "total": 8,
+      "passed": 5,
+      "passRate": 63
+    },
+    {
+      "target": "cases",
+      "total": 8,
+      "passed": 3,
+      "passRate": 38
+    }
+  ],
+  "rows": [
+    {
+      "target": "login",
+      "caseId": 1,
+      "name": "正确账号密码登录返回200和token",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 200,
+        "contains": "token",
+        "jsonChecks": [
+          {
+            "path": "$.token",
+            "op": "exists",
+            "value": null
+          }
+        ]
+      },
+      "pass": true,
+      "status": 200,
+      "durationMs": 65,
+      "failedChecks": [],
+      "expectationText": "{\"status\":200,\"contains\":\"token\",\"jsonChecks\":[{\"path\":\"$.token\",\"op\":\"exists\",\"value\":null}]}"
+    },
+    {
+      "target": "login",
+      "caseId": 2,
+      "name": "错误密码登录返回401",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 401
+      },
+      "pass": true,
+      "status": 401,
+      "durationMs": 58,
+      "failedChecks": [],
+      "expectationText": "{\"status\":401}"
+    },
+    {
+      "target": "login",
+      "caseId": 3,
+      "name": "缺失password字段返回400",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 400
+      },
+      "pass": true,
+      "status": 400,
+      "durationMs": 2,
+      "failedChecks": [],
+      "expectationText": "{\"status\":400}"
+    },
+    {
+      "target": "login",
+      "caseId": 4,
+      "name": "缺失username字段返回400",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 400
+      },
+      "pass": true,
+      "status": 400,
+      "durationMs": 2,
+      "failedChecks": [],
+      "expectationText": "{\"status\":400}"
+    },
+    {
+      "target": "login",
+      "caseId": 5,
+      "name": "空请求体返回400",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 400
+      },
+      "pass": true,
+      "status": 400,
+      "durationMs": 1,
+      "failedChecks": [],
+      "expectationText": "{\"status\":400}"
+    },
+    {
+      "target": "login",
+      "caseId": 6,
+      "name": "用户名为空字符串返回400",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 400
+      },
+      "pass": true,
+      "status": 400,
+      "durationMs": 1,
+      "failedChecks": [],
+      "expectationText": "{\"status\":400}"
+    },
+    {
+      "target": "login",
+      "caseId": 7,
+      "name": "超长用户名输入返回400而非500",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 400
+      },
+      "pass": false,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [
+        "状态码期望 400，实际 401"
+      ],
+      "expectationText": "{\"status\":400}"
+    },
+    {
+      "target": "login",
+      "caseId": 8,
+      "name": "使用GET方法访问登录接口返回405",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/auth/login",
+      "expected": {
+        "status": 405
+      },
+      "pass": false,
+      "status": 404,
+      "durationMs": 2,
+      "failedChecks": [
+        "状态码期望 405，实际 404"
+      ],
+      "expectationText": "{\"status\":405}"
+    },
+    {
+      "target": "health",
+      "caseId": 9,
+      "name": "正常健康检查返回 200 且 ok 为 true",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/health",
+      "expected": {
+        "status": 200,
+        "contains": "ok",
+        "maxTimeMs": 2000,
+        "jsonChecks": [
+          {
+            "path": "$.ok",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": 200,
+      "durationMs": 4,
+      "failedChecks": [],
+      "expectationText": "{\"status\":200,\"contains\":\"ok\",\"maxTimeMs\":2000,\"jsonChecks\":[{\"path\":\"$.ok\",\"op\":\"eq\",\"value\":true}]}"
+    },
+    {
+      "target": "health",
+      "caseId": 10,
+      "name": "健康检查响应内容为合法 JSON 对象",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/health",
+      "expected": {
+        "status": 200,
+        "maxTimeMs": 2000,
+        "jsonChecks": [
+          {
+            "path": "$.ok",
+            "op": "exists"
+          }
+        ]
+      },
+      "pass": true,
+      "status": 200,
+      "durationMs": 2,
+      "failedChecks": [],
+      "expectationText": "{\"status\":200,\"maxTimeMs\":2000,\"jsonChecks\":[{\"path\":\"$.ok\",\"op\":\"exists\"}]}"
+    },
+    {
+      "target": "health",
+      "caseId": 11,
+      "name": "携带无关查询参数时仍返回 200",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/health?verbose=1&source=test",
+      "expected": {
+        "status": 200,
+        "maxTimeMs": 2000,
+        "jsonChecks": [
+          {
+            "path": "$.ok",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": 200,
+      "durationMs": 2,
+      "failedChecks": [],
+      "expectationText": "{\"status\":200,\"maxTimeMs\":2000,\"jsonChecks\":[{\"path\":\"$.ok\",\"op\":\"eq\",\"value\":true}]}"
+    },
+    {
+      "target": "health",
+      "caseId": 12,
+      "name": "使用错误方法 POST 访问应返回 405 或 404",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/health",
+      "expected": {
+        "status": 405,
+        "maxTimeMs": 2000
+      },
+      "pass": false,
+      "status": 404,
+      "durationMs": 2,
+      "failedChecks": [
+        "状态码期望 405，实际 404"
+      ],
+      "expectationText": "{\"status\":405,\"maxTimeMs\":2000}"
+    },
+    {
+      "target": "health",
+      "caseId": 13,
+      "name": "访问不存在的子路径应返回 404",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/health/unknown",
+      "expected": {
+        "status": 404,
+        "maxTimeMs": 2000
+      },
+      "pass": false,
+      "status": 200,
+      "durationMs": 3,
+      "failedChecks": [
+        "状态码期望 404，实际 200"
+      ],
+      "expectationText": "{\"status\":404,\"maxTimeMs\":2000}"
+    },
+    {
+      "target": "health",
+      "caseId": 14,
+      "name": "根路径访问不应返回健康检查成功体",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/",
+      "expected": {
+        "status": 404,
+        "maxTimeMs": 2000
+      },
+      "pass": false,
+      "status": 200,
+      "durationMs": 1,
+      "failedChecks": [
+        "状态码期望 404，实际 200"
+      ],
+      "expectationText": "{\"status\":404,\"maxTimeMs\":2000}"
+    },
+    {
+      "target": "health",
+      "caseId": 15,
+      "name": "超长查询字符串下健康检查仍正常返回",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/health?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": {
+        "status": 200,
+        "maxTimeMs": 2000,
+        "jsonChecks": [
+          {
+            "path": "$.ok",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": 200,
+      "durationMs": 1,
+      "failedChecks": [],
+      "expectationText": "{\"status\":200,\"maxTimeMs\":2000,\"jsonChecks\":[{\"path\":\"$.ok\",\"op\":\"eq\",\"value\":true}]}"
+    },
+    {
+      "target": "health",
+      "caseId": 16,
+      "name": "健康检查响应时间应在限定范围内",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/health",
+      "expected": {
+        "status": 200,
+        "maxTimeMs": 500,
+        "jsonChecks": [
+          {
+            "path": "$.ok",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      },
+      "pass": true,
+      "status": 200,
+      "durationMs": 1,
+      "failedChecks": [],
+      "expectationText": "{\"status\":200,\"maxTimeMs\":500,\"jsonChecks\":[{\"path\":\"$.ok\",\"op\":\"eq\",\"value\":true}]}"
+    },
+    {
+      "target": "cases",
+      "caseId": 17,
+      "name": "正常查询全部用例列表（有效 token）",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/cases",
+      "expected": {
+        "status": 200,
+        "contains": "cases",
+        "maxTimeMs": 3000,
+        "jsonChecks": [
+          {
+            "path": "$.code",
+            "op": "eq",
+            "value": 200
+          },
+          {
+            "path": "$.data",
+            "op": "exists"
+          }
+        ]
+      },
+      "pass": false,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [
+        "状态码期望 200，实际 401",
+        "响应体未包含「cases」",
+        "JSONPath $.code eq 200 不成立（匹配 0 个，首个 undefined）",
+        "JSONPath $.data exists undefined 不成立（匹配 0 个，首个 undefined）"
+      ],
+      "expectationText": "{\"status\":200,\"contains\":\"cases\",\"maxTimeMs\":3000,\"jsonChecks\":[{\"path\":\"$.code\",\"op\":\"eq\",\"value\":200},{\"path\":\"$.data\",\"op\":\"exists\"}]}"
+    },
+    {
+      "target": "cases",
+      "caseId": 18,
+      "name": "缺少 Authorization 请求头时返回 401",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/cases",
+      "expected": {
+        "status": 401,
+        "contains": "Unauthorized"
+      },
+      "pass": false,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [
+        "响应体未包含「Unauthorized」"
+      ],
+      "expectationText": "{\"status\":401,\"contains\":\"Unauthorized\"}"
+    },
+    {
+      "target": "cases",
+      "caseId": 19,
+      "name": "Authorization 格式错误（缺少 Bearer 前缀）返回 401",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/cases",
+      "expected": {
+        "status": 401
+      },
+      "pass": true,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [],
+      "expectationText": "{\"status\":401}"
+    },
+    {
+      "target": "cases",
+      "caseId": 20,
+      "name": "使用伪造/过期 token 返回 401",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/cases",
+      "expected": {
+        "status": 401
+      },
+      "pass": true,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [],
+      "expectationText": "{\"status\":401}"
+    },
+    {
+      "target": "cases",
+      "caseId": 21,
+      "name": "超长 Authorization 头触发边界处理",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/cases",
+      "expected": {
+        "status": 401
+      },
+      "pass": true,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [],
+      "expectationText": "{\"status\":401}"
+    },
+    {
+      "target": "cases",
+      "caseId": 22,
+      "name": "使用错误 HTTP 方法 POST 请求应返回 405",
+      "method": "POST",
+      "url": "http://127.0.0.1:26118/api/cases",
+      "expected": {
+        "status": 405
+      },
+      "pass": false,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [
+        "状态码期望 405，实际 401"
+      ],
+      "expectationText": "{\"status\":405}"
+    },
+    {
+      "target": "cases",
+      "caseId": 23,
+      "name": "携带非法查询参数 page 的边界处理",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/cases?page=-1",
+      "expected": {
+        "status": 400
+      },
+      "pass": false,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [
+        "状态码期望 400，实际 401"
+      ],
+      "expectationText": "{\"status\":400}"
+    },
+    {
+      "target": "cases",
+      "caseId": 24,
+      "name": "查询列表响应时间不超过 2 秒",
+      "method": "GET",
+      "url": "http://127.0.0.1:26118/api/cases",
+      "expected": {
+        "status": 200,
+        "maxTimeMs": 2000,
+        "jsonChecks": [
+          {
+            "path": "$.code",
+            "op": "eq",
+            "value": 200
+          }
+        ]
+      },
+      "pass": false,
+      "status": 401,
+      "durationMs": 1,
+      "failedChecks": [
+        "状态码期望 200，实际 401",
+        "JSONPath $.code eq 200 不成立（匹配 0 个，首个 undefined）"
+      ],
+      "expectationText": "{\"status\":200,\"maxTimeMs\":2000,\"jsonChecks\":[{\"path\":\"$.code\",\"op\":\"eq\",\"value\":200}]}"
+    }
+  ],
+  "caseSetFingerprint": "1afdb73778127574"
+}

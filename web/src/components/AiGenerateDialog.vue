@@ -194,6 +194,9 @@ async function onSaveSelected() {
         headers: c.headers || {},
         body: c.body,
         expected: c.expected || {},
+        // 标记来源：报告页据此单独算「AI 生成用例的通过率」。
+        // 注意勾选/编辑过也仍然是 ai —— 它源于模型、经人 review，这两件事不矛盾。
+        source: 'ai',
       })
       ok++
     } catch {

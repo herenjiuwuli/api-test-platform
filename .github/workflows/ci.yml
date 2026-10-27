@@ -1,12 +1,13 @@
 name: CI
 
-# M19：把分层的测试接进 CI 做回归（现为五层）
+# M19：把分层的测试接进 CI 做回归（2026-10-27 起为六层）
 #   ① 静态扫描（前端未声明标识符等 —— 拦「build 过、真机一跑就 ReferenceError」）
 #   ①b 静态扫描（文档引用 —— README / docs / CI 里引用的文件必须真的存在）
 #   ② 构建（后端要托管 web/dist，E2E 依赖它）
-#   ③ 接口测试（vitest，211 条：鉴权 / 断言引擎 / 链路 / 环境 / 分组 / 通知 / 响应头 / query）
+#   ③ 接口测试（vitest，233 条：鉴权 / 断言引擎 / 链路 / 环境 / 分组 / 通知 / 响应头 / query）
 #   ④ UI 测试（Playwright，11 条：路由守卫 / 真实登录 / 单条与分组运行 / 报告 / 增删）
 #   ⑤ 真机断言（自写零依赖 CDP 脚本 m11 + m12：套件导入导出 / 用例分组）
+#   ⑥ 覆盖率（v8，只统计 src/ 后端；实测 语句 89.95 / 分支 83.23 / 函数 94.77 / 行 92.90）
 #
 # ⚠️ 条数**刻意不写死在这**：写死必然烂 —— 旧值「43 条」= 19+24，而 m12 加了自包含对照数据后
 #    已是 26（合计 45），注释却一路没跟上。现在运行时由 run-ui-check.mjs 按 `check(` 现数并打印。
@@ -78,3 +79,21 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+      - name: ⑥ 覆盖率（基线锁：语句 88 / 分支 80 / 函数 93 / 行 92）
+        # 2026-10-27 实测：语句 89.95 / 分支 83.23 / 函数 94.77 / 行 92.90（818 行）
+        # 阈值取实测值向下取整 —— 作用是「不许偷偷降」，不是假装达标。
+        # 单独一层而不是塞进 ③：③ 只证明「233 条测试过了」，这一层证明「测到了多少代码」，
+        # 两件事分开看，才不会被「全绿」这个词糊住。
+        # ⚠️ 只统计 src/（后端）；web/ 前端由 ④ E2E 与 ⑤ 真机断言覆盖，
+        #    拿单测覆盖率去凑前端数字，是自欺。
+        run: npm run test:cov
+
+      - name: 覆盖率报告（留档，方便回看趋势）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+          retention-days: 7
+          if-no-files-found: ignore

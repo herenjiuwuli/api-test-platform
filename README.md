@@ -19,7 +19,7 @@
   - 前端：登录页 + 路由守卫（未登录跳 `/login`）+ axios 拦截器自动带 token / 401 清退 + 退出按钮
   - 修改密码（M5）：`POST /api/auth/change-password`（需登录），校验原密码后更新哈希；前端右上角用户菜单内弹窗，改完自动重新登录
 - **部署（M5，单端口）**：
-  - 前端 `web/dist` 构建后由 Fastify **同源托管**（`/*` 静态路由 + SPA 回退），部署只需一个端口（默认 3001），无跨域
+  - 前端 `web/dist` 构建后由 Fastify **同源托管**（`/*` 静态路由 + SPA 回退），部署只需一个端口（默认 3003），无跨域
   - 提供 `Dockerfile` + `docker-compose.yml` + `DEPLOY.md`（Docker / VPS / Railway / Render），含 Vercel 不适用说明（SQLite 有状态，需持久卷）
   - 数据持久化在 `data/app.db`，容器/主机挂卷即可重启不丢
 - 用例模型：`name / method / url / headers / body / bodyType(json|raw|form-data) / files / group / expected(status, contains, maxTimeMs, jsonChecks, **headers**)`
@@ -50,18 +50,18 @@ npm install
 cd web && npm install && cd ..
 
 # 方式一（推荐）：一键启动，同时拉起前后端
-npm run dev        # 后端 http://localhost:3001 + 前端 http://localhost:5173
+npm run dev        # 后端 http://localhost:3003 + 前端 http://localhost:5173
 
 # 方式二：分开启动
-npm start          # 后端 http://localhost:3001
-cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3001）
+npm start          # 后端 http://localhost:3003
+cd web && npm run dev    # 前端 http://localhost:5173（/api 自动代理到 3003）
 ```
 
 测试与构建：
 
 ```bash
 npm run seed       # 写入 13 条「自测」用例（覆盖全断言维度，含 4 条打外网）+ 1 条演示定时任务，首次打开就有东西可跑
-npm test           # vitest 211 例全绿（全离线）
+npm test           # vitest 233 例全绿（全离线）
 npm run check:frontend    # 静态扫描：前端未声明标识符 / 模板漏声明 / ref 忘了 .value
 npm run check:docs        # 静态扫描：README / docs / CI 里引用的文件必须真的存在
 cd web && npm run build   # 前端产物 web/dist（E2E 打的是这份产物，必须先构建）
@@ -355,6 +355,61 @@ M20 之前的通知都只活在平台页面里——人不在电脑前就收不�
 - 消息体与站内通知同构，外加 `type: 'api-test-platform.notify'` 标识来源——收端（飞书适配器 / hermes）好路由。
 - 前端报告页新增「📣 通知出口」卡片：输入地址保存即启用，清空保存即关闭。
 
+## AI 生成用例与质量评测（M23）
+
+这个功能本来就在（输入接口信息 → DeepSeek 设计 5–8 条正常/边界/异常用例 → 预览可编辑 →
+**勾选后**才写入用例库）。M23 补的是它缺的那一半：**「生成出来的东西到底能不能用」有数字**。
+
+### 三层设计
+
+| 层 | 做法 | 为什么必须这样 |
+|---|---|---|
+| ① 来源标记 | `test_cases.source` = `manual` / `ai`（迁移幂等，老库默认 manual） | 没有这一列就分不清哪些是模型写的，「AI 用例通过率」永远算不出来 |
+| ② 人机 Review | 生成结果必须**预览 + 勾选**才入库；报告页把 AI / 人工的通过率**分开算** | 全自动入库等于没人负责；混在一起算平均值会掩盖最关键的信息 |
+| ③ 幻觉率 | `npm run eval:ai-cases` → 真跑一遍 → `npm run review:ai-cases` 按人工标注分类 | 通过率只能答「能不能跑过」，答不了「跑不过是谁的问题」 |
+
+> ⚠️ `updateCase` **刻意不允许改 source**。否则 AI 用例跑红了手动改成 manual，
+> 统计立刻变成自欺欺人 —— 「这条用例是怎么来的」是历史事实，不该可编辑。
+
+### 实测结果（2026-10-27，deepseek-chat，3 个真实接口）
+
+```
+用例 24 条｜通过 14｜失败 10｜通过率 58%
+  - login  6/8 (75%)   health 5/8 (63%)   cases 3/8 (38%)
+```
+
+失败 10 条按人工标注分类：
+
+| 类别 | 条数 | 说明 |
+|---|---|---|
+| **幻觉** | **4** | 凭空编 Bearer token、编造 `{code,data}` 响应结构、把中文错误文案写成 `Unauthorized`、以为 `/` 是 `/health` 的根 |
+| 框架语义差异 | 4 | 期望 405 而 Fastify 返 404；鉴权先于方法判断所以返 401 |
+| 设计权衡 | 1 | SPA 回退让 `/health/unknown` 返回前端页面 200 |
+| 断言过严 | 1 | 超长用户名期望 400，实际 401（查不到用户），行为可接受 |
+
+**幻觉率 17%（4/24）｜占失败 40%（4/10）** —— 两个口径都要报：
+只说「占失败」会显得很高，只说「占全部」会显得很低。
+
+### ⭐ 它抓到了一个真缺陷（这才是 AI 用例的价值）
+
+第一轮评测里，`POST /api/auth/login` 缺 `username` 或空 body 时返回 **500**：
+
+```
+ERR_INVALID_ARG_TYPE: Provided value cannot be bound to SQLite parameter 1
+```
+
+根因：登录路由没做入参校验，`undefined` 一路绑进 `WHERE username = ?`。
+而**隔壁的 `register` 路由明明有校验** —— 一对孪生接口，一个有、一个没有。
+
+已修（缺字段 → 400），补了 2 条回归测试，复测转绿。这一条比「通过率 58%」有说服力得多：
+**模型写出来的用例里，有真发现。**
+
+### 为什么不做成 CI 门禁
+
+`eval:ai-cases` 要真调 DeepSeek（要 key、要钱、每次生成的内容还不一样）。
+硬塞进 CI 只会变成一条「没有 key 就永远 skip」的假门禁。它属于**改动前后的判据**，
+不是每次提交都要跑的东西。
+
 ## 里程碑路线
 
 | 里程碑 | 目标 | 状态 |
@@ -382,7 +437,7 @@ M20 之前的通知都只活在平台页面里——人不在电脑前就收不�
 | **M22** | **数据自洽：把「自测」用例组收成一个真源**。① 散落的历史示例用例（无分组、其中 5 条是红的、还有一条名字是乱码）收敛为分组 `自测`，由 `seed.js` **单一真源幂等维护**（13 条，覆盖状态码/包含/耗时/JSONPath/响应头 5 类断言 + 鉴权与路由语义），报告页一眼区分「测平台自己」与「测 OA」；② 修掉 `seed.js` **自己写错的 JSONPath 方言**——`$.1.name`（本平台只认 `$[1]`）求值静默返回 0 匹配，导致**每跑一次 seed 就往库里埋一条必红用例**，「全部运行」长期停在 68/74；③ 新增 `tests/seed.test.js` 9 例：不许出现 `$.1` 方言、不许出现期望 405、断言维度覆盖齐全、外网依赖名字必须带前缀、**幂等性**、以及「历史遗留名字（`示例-*` / `健康检查-*`）能被清干净」；④ 截图导览脚本的演示对象从「库里捡一条红的」改成**自建自删的临时用例**，不再依赖偶然数据；收尾删除写进 **`finally` + 看门狗**（不再只写在正常路径末尾），并给 CDP 的每次调用补上超时 —— 起因是它曾在一次 `eval` 上**挂死 3 小时 31 分**，把一条「每分钟触发」的定时任务留在库里无人看管地跑。⭐ 一句话：**种子数据也是代码，也会写出错的断言，也该有测试。** | ✅ 已完成（206 例接口 + 11 条 E2E + OA 60 条） |
 
 ⭐ 注：表里的「N 例 / OA N 条」是**该里程碑完成当时**的数字，不是当前值（历史不该被后一轮改写）。
-当前规模见本文开头：**211 个单测（17 个文件）+ 11 条 E2E + OA 套件 84 条**。
+当前规模见本文开头：**233 个单测（19 个文件，行覆盖 94.7% / 分支 84.4%）+ 11 条 E2E + OA 套件 84 条**。
 
 ### 面试材料（都是「协作产出」的诚实版本，别照着装全独立手写）
 
@@ -424,7 +479,7 @@ e2e/seed-e2e.mjs     E2E 确定性种子：复用真实 seed.js + 补 2 条离�
 e2e/helpers.js       E2E 公共层：真实表单登录 / hash 路由判据 / 等数据到位 / ★ about:blank 收尾 fixture（拆掉 SSE 长连接防挂死）
 scripts/run-e2e.mjs  E2E 包装器：自管服务生命周期（起 → 等 /health → 跑 Playwright → 杀）——绕开 Windows 上 Playwright 收尾杀不掉 webServer 的坑
 .github/workflows/ci.yml  CI：静态扫描（前端 + 文档引用）→ 构建 → vitest → E2E → 真机断言（m11+m12，45 条）
-tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/runnerQuery.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js + tests/seed.test.js  共 17 个文件 / 211 例，全离线
+tests/app.test.js + tests/jsonpath.test.js + tests/auth.test.js + tests/vars.test.js + tests/aiCases.test.js + tests/ai.test.js + tests/caseSource.test.js + tests/multipart.test.js + tests/environments.test.js + tests/runEnv.test.js + tests/suite.test.js + tests/group.test.js + tests/deleteCascade.test.js + tests/headerAssert.test.js + tests/runnerQuery.test.js + tests/schedules.test.js + tests/notifications.test.js + tests/webhook.test.js + tests/seed.test.js  共 19 个文件 / 233 例，全离线
 e2e/auth.spec.js + e2e/cases.spec.js + e2e/helpers.js + e2e/seed-e2e.mjs + e2e/force-exit-reporter.mjs + playwright.config.js + scripts/run-e2e.mjs  共 11 条真浏览器 E2E（channel:'chrome' 免下载；独立库 data/e2e.db；force-exit reporter + 看门狗重试绕开本机 flaky 收尾；CI 走 .github/workflows/ci.yml）
 scripts/clean-orphan-runs.mjs    扫尾「孤儿执行记录」（指向已删除用例的 runs）；默认只报告，--yes 才删 — npm run clean:orphans
 scripts/m10-report-env-check.mjs  跑完闭环后，从报告接口读回「这一轮实际打的是哪个环境」（含快照语义核对）

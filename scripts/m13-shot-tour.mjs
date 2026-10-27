@@ -9,8 +9,8 @@
 // ⚠️ 刻意不放 test-results/：那边 Playwright 每次启动都会清空 —— 截图放那儿会被下次 E2E 顺手删掉。
 //
 // 用法：
-//   node scripts/m13-shot-tour.mjs                 # 默认打 http://127.0.0.1:3001
-//   PLATFORM_BASE=http://localhost:3001 node scripts/m13-shot-tour.mjs   （ATP_BASE 仍兼容）
+//   node scripts/m13-shot-tour.mjs                 # 默认打 http://127.0.0.1:3003
+//   PLATFORM_BASE=http://localhost:3003 node scripts/m13-shot-tour.mjs   （ATP_BASE 仍兼容）
 //   SKIP_RUN=1 node scripts/m13-shot-tour.mjs      # 跳过「全部运行」（改脚本时反复调试用）
 //   TOUR_TIMEOUT_MS=300000 node ...                # 改看门狗阈值（默认 8 分钟）
 //
